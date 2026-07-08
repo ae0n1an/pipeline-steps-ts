@@ -245,6 +245,50 @@ test('runAll throws an aggregated error when any pipeline does not succeed', asy
   }
 });
 
+test('runAll polls a mixed batch to completion: one success does not abort a sibling failure', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adf-test-'));
+  try {
+    let goodPolls = 0;
+    const fetchImpl: FetchLike = async (url) => {
+      if (url.includes('createRun')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ runId: url.includes('copyGood') ? 'run-good' : 'run-bad' }),
+          text: async () => '',
+        };
+      }
+      if (url.includes('run-good')) {
+        goodPolls += 1;
+        return { ok: true, status: 200, json: async () => ({ status: 'Succeeded' }), text: async () => '' };
+      }
+      return { ok: true, status: 200, json: async () => ({ status: 'Failed', message: 'boom' }), text: async () => '' };
+    };
+    const deps = fakeClock({ fetchImpl });
+    const config = {
+      accessToken: 't',
+      subscriptionId: 'sub1',
+      resourceGroup: 'rg1',
+      factoryName: 'f1',
+      pipelines: [
+        { name: 'copyGood', pipelineName: 'copyGood' },
+        { name: 'copyBad', pipelineName: 'copyBad' },
+      ],
+    };
+    await assert.rejects(
+      () => runAll(config, fakeCtx(outDir), deps),
+      /1\/2 ADF pipeline run\(s\) did not succeed[\s\S]*copyBad[\s\S]*run-bad[\s\S]*Failed/,
+    );
+    // The failing sibling must not have prevented copyGood from being polled to completion.
+    assert.equal(goodPolls, 1);
+    const summary = JSON.parse(fs.readFileSync(path.join(outDir, 'run-summary.json'), 'utf8'));
+    assert.equal(summary.find((r: { name: string }) => r.name === 'copyGood').status, 'Succeeded');
+    assert.equal(summary.find((r: { name: string }) => r.name === 'copyBad').status, 'Failed');
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
 test('runAll validates required config upfront', async () => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adf-test-'));
   try {

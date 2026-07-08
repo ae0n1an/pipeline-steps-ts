@@ -218,10 +218,11 @@ export async function runAll(
   const summaryPath = path.join(ctx.outDir, 'run-summary.json');
   fs.writeFileSync(summaryPath, JSON.stringify(results, null, 2));
 
+  const failed = results.filter(r => r.status !== 'Succeeded');
   const outputs: Record<string, string | number | boolean> = {
     totalPipelines: results.length,
-    succeededCount: results.filter(r => r.status === 'Succeeded').length,
-    failedCount: results.filter(r => r.status !== 'Succeeded').length,
+    succeededCount: results.length - failed.length,
+    failedCount: failed.length,
   };
   for (const r of results) {
     outputs[`${r.name}_runId`] = r.runId ?? '';
@@ -230,10 +231,9 @@ export async function runAll(
     outputs[`${r.name}_durationMs`] = r.durationMs;
   }
 
-  const failed = results.filter(r => r.status !== 'Succeeded');
   if (failed.length > 0) {
     const detail = failed
-      .map(r => `  - ${r.name} (${r.pipelineName}): ${r.status}${r.message ? ` — ${r.message}` : ''}`)
+      .map(r => `  - ${r.name} (${r.pipelineName}, runId=${r.runId ?? 'n/a'}): ${r.status}${r.message ? ` — ${r.message}` : ''}`)
       .join('\n');
     throw new Error(`${failed.length}/${results.length} ADF pipeline run(s) did not succeed:\n${detail}`);
   }
