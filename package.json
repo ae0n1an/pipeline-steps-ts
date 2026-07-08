@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "step": "tsx runner/run-step.ts"
+    "step": "tsx runner/run-step.ts",
+    "test": "tsx --test steps/**/*.test.ts"
   },
   "keywords": [],
   "author": "",
