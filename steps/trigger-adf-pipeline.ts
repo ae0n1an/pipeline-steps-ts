@@ -149,3 +149,98 @@ export async function pollUntilTerminal(
     await deps.sleepImpl(opts.pollIntervalMs);
   }
 }
+
+// ---------- Orchestration ---------------------------------------------------
+
+function outputKeyPrefix(run: AdfPipelineRun, index: number): string {
+  return run.name ?? `p${index}`;
+}
+
+async function runOnePipeline(
+  run: AdfPipelineRun,
+  index: number,
+  config: TriggerAdfPipelineConfig,
+  deps: AdfDeps,
+  ctx: StepContext,
+): Promise<RunResult> {
+  const name = outputKeyPrefix(run, index);
+  const startedAt = deps.nowImpl();
+  try {
+    const target = resolveTarget(run, config);
+    const runId = await triggerRun(target, run, config.accessToken, deps.fetchImpl);
+    ctx.log(`Triggered "${run.pipelineName}" (${name}) -> runId=${runId}`);
+    const outcome = await pollUntilTerminal(
+      target,
+      runId,
+      config.accessToken,
+      {
+        pollIntervalMs: Number(config.pollIntervalMs ?? 15000),
+        timeoutMs: Number(config.timeoutMs ?? 3600000),
+      },
+      deps,
+    );
+    return {
+      name,
+      pipelineName: run.pipelineName,
+      runId,
+      status: outcome.status,
+      durationMs: deps.nowImpl() - startedAt,
+      message: outcome.message,
+    };
+  } catch (err) {
+    return {
+      name,
+      pipelineName: run.pipelineName,
+      status: 'Failed',
+      durationMs: deps.nowImpl() - startedAt,
+      message: (err as Error).message,
+    };
+  }
+}
+
+export async function runAll(
+  config: TriggerAdfPipelineConfig,
+  ctx: StepContext,
+  deps: AdfDeps = defaultDeps,
+): Promise<StepResult> {
+  if (!config.accessToken) throw new Error('config.accessToken is required');
+  if (!config.pipelines || config.pipelines.length === 0) {
+    throw new Error('config.pipelines must contain at least one pipeline run');
+  }
+  config.pipelines.forEach((run, i) => {
+    if (!run.pipelineName) throw new Error(`config.pipelines[${i}] is missing pipelineName`);
+  });
+
+  const results = await Promise.all(
+    config.pipelines.map((run, index) => runOnePipeline(run, index, config, deps, ctx)),
+  );
+
+  const summaryPath = path.join(ctx.outDir, 'run-summary.json');
+  fs.writeFileSync(summaryPath, JSON.stringify(results, null, 2));
+
+  const outputs: Record<string, string | number | boolean> = {
+    totalPipelines: results.length,
+    succeededCount: results.filter(r => r.status === 'Succeeded').length,
+    failedCount: results.filter(r => r.status !== 'Succeeded').length,
+  };
+  for (const r of results) {
+    outputs[`${r.name}_runId`] = r.runId ?? '';
+    outputs[`${r.name}_status`] = r.status;
+    outputs[`${r.name}_pipelineName`] = r.pipelineName;
+    outputs[`${r.name}_durationMs`] = r.durationMs;
+  }
+
+  const failed = results.filter(r => r.status !== 'Succeeded');
+  if (failed.length > 0) {
+    const detail = failed
+      .map(r => `  - ${r.name} (${r.pipelineName}): ${r.status}${r.message ? ` — ${r.message}` : ''}`)
+      .join('\n');
+    throw new Error(`${failed.length}/${results.length} ADF pipeline run(s) did not succeed:\n${detail}`);
+  }
+
+  return { outputs, artifacts: [summaryPath] };
+}
+
+export default defineStep<TriggerAdfPipelineConfig>({
+  run: (config, ctx) => runAll(config, ctx),
+});

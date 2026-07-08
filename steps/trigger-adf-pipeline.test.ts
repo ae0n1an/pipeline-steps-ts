@@ -162,3 +162,105 @@ test('pollUntilTerminal retries past a transient non-2xx response', async () => 
   assert.equal(outcome.status, 'Succeeded');
   assert.equal(calls, 2);
 });
+
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { runAll } from './trigger-adf-pipeline';
+import type { StepContext } from '../runner/types';
+
+function fakeCtx(outDir: string): StepContext {
+  return {
+    stepName: 'test',
+    outDir,
+    workspace: outDir,
+    steps: {},
+    log: () => {},
+    warn: () => {},
+  };
+}
+
+test('runAll triggers and polls all pipelines, returns flattened outputs', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adf-test-'));
+  try {
+    const fetchImpl: FetchLike = async (url) => {
+      if (url.includes('createRun')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ runId: url.includes('copyA') ? 'run-a' : 'run-b' }),
+          text: async () => '',
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({ status: 'Succeeded' }), text: async () => '' };
+    };
+    const deps = fakeClock({ fetchImpl });
+    const config = {
+      accessToken: 't',
+      subscriptionId: 'sub1',
+      resourceGroup: 'rg1',
+      factoryName: 'f1',
+      pipelines: [
+        { name: 'copyA', pipelineName: 'copyA' },
+        { pipelineName: 'copyB' },
+      ],
+    };
+    const result = await runAll(config, fakeCtx(outDir), deps);
+    assert.equal(result.outputs?.totalPipelines, 2);
+    assert.equal(result.outputs?.succeededCount, 2);
+    assert.equal(result.outputs?.failedCount, 0);
+    assert.equal(result.outputs?.copyA_status, 'Succeeded');
+    assert.equal(result.outputs?.copyA_runId, 'run-a');
+    assert.equal(result.outputs?.p1_status, 'Succeeded');
+    assert.equal(result.outputs?.p1_pipelineName, 'copyB');
+    assert.ok(fs.existsSync(path.join(outDir, 'run-summary.json')));
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll throws an aggregated error when any pipeline does not succeed', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adf-test-'));
+  try {
+    const fetchImpl: FetchLike = async (url) => {
+      if (url.includes('createRun')) {
+        return { ok: true, status: 200, json: async () => ({ runId: 'run-x' }), text: async () => '' };
+      }
+      return { ok: true, status: 200, json: async () => ({ status: 'Failed', message: 'boom' }), text: async () => '' };
+    };
+    const deps = fakeClock({ fetchImpl });
+    const config = {
+      accessToken: 't',
+      subscriptionId: 'sub1',
+      resourceGroup: 'rg1',
+      factoryName: 'f1',
+      pipelines: [{ pipelineName: 'copyC' }],
+    };
+    await assert.rejects(
+      () => runAll(config, fakeCtx(outDir), deps),
+      /1\/1 ADF pipeline run\(s\) did not succeed[\s\S]*copyC[\s\S]*Failed/,
+    );
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll validates required config upfront', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adf-test-'));
+  try {
+    await assert.rejects(
+      () => runAll({ accessToken: '', pipelines: [] } as any, fakeCtx(outDir), fakeClock()),
+      /accessToken is required/,
+    );
+    await assert.rejects(
+      () => runAll({ accessToken: 't', pipelines: [] }, fakeCtx(outDir), fakeClock()),
+      /at least one pipeline run/,
+    );
+    await assert.rejects(
+      () => runAll({ accessToken: 't', pipelines: [{ pipelineName: '' }] } as any, fakeCtx(outDir), fakeClock()),
+      /missing pipelineName/,
+    );
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
