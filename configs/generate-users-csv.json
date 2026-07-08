@@ -1,0 +1,17 @@
+{
+  "fileName": "users.csv",
+  "rowCount": 250,
+  "seed": 42,
+  "columns": [
+    { "name": "id", "type": "uuid" },
+    { "name": "firstName", "type": "firstName" },
+    { "name": "lastName", "type": "lastName" },
+    { "name": "email", "type": "email" },
+    { "name": "age", "type": "int", "min": 18, "max": 90 },
+    { "name": "balance", "type": "float", "min": 0, "max": 10000, "decimals": 2 },
+    { "name": "signupAt", "type": "date", "from": "2020-01-01", "to": "2026-01-01" },
+    { "name": "plan", "type": "enum", "values": ["free", "pro", "enterprise"] },
+    { "name": "active", "type": "bool", "trueProbability": 0.8 },
+    { "name": "referrer", "type": "template", "template": "campaign-{rowIndex}", "nullProbability": 0.3 }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "inputPath": "{{steps.genUsersCsv.outputs.csvPath}}",
+  "publicKeyArmored": "{{env.GPG_PUBLIC_KEY}}",
+  "outputFileName": "users.csv.gpg",
+  "armor": false
+}

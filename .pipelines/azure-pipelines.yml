@@ -1,0 +1,76 @@
+# Composable TypeScript step pipeline: generate synthetic CSV -> GPG-encrypt
+# with a public key from Azure Key Vault. Steps run directly via tsx (no
+# build/emit); tsc runs in --noEmit mode as a type-check gate.
+
+trigger:
+  - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  PIPELINE_WORKSPACE: $(Pipeline.Workspace)
+
+stages:
+  - stage: Generate
+    jobs:
+      - job: build_data
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '20.x'
+
+          - script: npm ci
+            displayName: 'Install dependencies'
+
+          - script: npm run typecheck
+            displayName: 'Type-check steps (tsc --noEmit)'
+
+          # ---- Fetch GPG public key from Azure Key Vault ---------------
+          - task: AzureKeyVault@2
+            displayName: 'Fetch GPG public key from Key Vault'
+            inputs:
+              azureSubscription: 'my-service-connection'
+              KeyVaultName: 'my-keyvault'
+              SecretsFilter: 'gpg-public-key'
+              RunAsPreJob: false
+
+          # ---- Step 1: generate synthetic CSV -------------------------
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/generate-synthetic-csv.ts
+              --config configs/generate-users-csv.json
+              --name genUsersCsv
+            name: genUsersCsv
+            displayName: 'Generate synthetic users CSV'
+
+          # ---- Step 2: GPG-encrypt the CSV (composes on step 1) -------
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/gpg-encrypt-file.ts
+              --config configs/gpg-encrypt-users-csv.json
+              --name gpgEncryptCsv
+            name: gpgEncryptCsv
+            displayName: 'GPG encrypt CSV with Key Vault key'
+            env:
+              GPG_PUBLIC_KEY: $(gpg-public-key)   # secrets are never auto-exposed to scripts
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish step outputs'
+            inputs:
+              targetPath: '$(Pipeline.Workspace)/step-output'
+              artifact: 'step-output'
+
+  - stage: Deliver
+    dependsOn: Generate
+    variables:
+      encryptedFile: $[ stageDependencies.Generate.build_data.outputs['gpgEncryptCsv.gpgEncryptCsv.encryptedPath'] ]
+    jobs:
+      - job: ship_data
+        steps:
+          - download: current
+            artifact: step-output
+          - script: |
+              echo "Encrypted artifact from upstream: $(encryptedFile)"
+              cat $(Pipeline.Workspace)/step-output/gpgEncryptCsv/output.json
+            displayName: 'Read upstream JSON / pick up encrypted file'
