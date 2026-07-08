@@ -86,7 +86,7 @@ stages:
   - stage: Deliver
     dependsOn: Generate
     variables:
-      encryptedFile: $[ stageDependencies.Generate.build_data.outputs['gpgEncryptCsv.gpgEncryptCsv.encryptedPath'] ]
+      encryptedFile: $[ stageDependencies.Generate.build_data.outputs['gpgEncryptCsv.gpgEncryptCsv.usersCsvGpg_encryptedPath'] ]
     jobs:
       - job: ship_data
         steps:

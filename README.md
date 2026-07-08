@@ -79,14 +79,16 @@ run `node dist/runner/run-step.js` instead.
 
 ## How outputs flow
 
-1. **Config interpolation** — `"inputPath": "{{steps.genUsersCsv.outputs.csvPath}}"`
+1. **Config interpolation** — `"inputPath": "{{steps.genUsersCsv.outputs.usersCsv_csvPath}}"`
    resolved from the upstream `output.json`; `{{env.VAR}}` also works.
 2. **Pipeline output variables** — every output is emitted via
    `##vso[task.setvariable …;isOutput=true]`; read as
-   `$(genUsersCsv.genUsersCsv.rowCount)` or via `stageDependencies`. For
-   `trigger-adf-pipeline`, each pipeline run's outputs are prefixed by its
-   configured `name` (or `p0`, `p1`, … by index), e.g.
-   `$(triggerAdf.triggerAdf.copyOrders_status)`.
+   `$(genUsersCsv.genUsersCsv.usersCsv_rowCount)` or via
+   `stageDependencies`. `generate-synthetic-csv`, `gpg-encrypt-file`, and
+   `trigger-adf-pipeline` all support multiple items per invocation, and
+   all three flatten each item's outputs under a prefix — that item's
+   configured `name` (or `f0`, `f1`, … / `p0`, `p1`, … by index if `name`
+   is omitted), e.g. `$(triggerAdf.triggerAdf.copyOrders_status)`.
 3. **Published artifacts** — the `step-output/` tree is published whole.
 
 ## Azure Key Vault
