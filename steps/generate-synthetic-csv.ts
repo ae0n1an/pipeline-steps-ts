@@ -1,15 +1,15 @@
 /**
  * Step: generate-synthetic-csv (TypeScript)
  *
- * Generates a mock CSV payload from a declarative column config.
- * Column types are a discriminated union, so tsc catches invalid
- * column configs (e.g. "values" on an int column) at compile time
- * when configs are authored in TS; JSON configs are validated at runtime.
+ * Generates one or more mock CSV payloads from declarative column configs.
+ * Column types are a discriminated union, so tsc catches invalid column
+ * configs (e.g. "values" on an int column) at compile time when configs are
+ * authored in TS; JSON configs are validated at runtime.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { defineStep } from '../runner/types';
+import { defineStep, type StepContext } from '../runner/types';
 
 // ---------- Config types -------------------------------------------------
 
@@ -30,11 +30,17 @@ export type ColumnConfig =
   | (BaseColumn & { type: 'template'; template: string })
   | (BaseColumn & { type: 'constant'; value: string | number | boolean });
 
-export interface GenerateCsvConfig {
+export interface FileConfig {
+  /** Output key prefix for this file's results; defaults to "f{index}". */
+  name?: string;
   fileName?: string;
   rowCount?: number | string; // string when overridden via STEP_CONFIG_ env
   seed?: number | string;
   columns: ColumnConfig[];
+}
+
+export interface GenerateCsvConfig {
+  files: FileConfig[];
 }
 
 // ---------- Deterministic RNG (mulberry32) -------------------------------
@@ -101,43 +107,82 @@ function csvEscape(value: string | number | boolean | null): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-// ---------- Step ----------------------------------------------------------
+// ---------- Per-file generation --------------------------------------------
+
+interface OneFileResult {
+  fileName: string;
+  filePath: string;
+  rowCount: number;
+  seed: number;
+  columnNames: string;
+  sizeBytes: number;
+}
+
+function generateOneFile(file: FileConfig, index: number, ctx: StepContext): OneFileResult {
+  const rowCount = Number(file.rowCount ?? 100);
+  const columns = file.columns ?? [];
+  if (!columns.length) throw new Error('columns must define at least one column');
+
+  const seed = Number(file.seed ?? Date.now());
+  const rng = makeRng(seed);
+  const fileName = file.fileName ?? `synthetic-${index}.csv`;
+  const filePath = path.join(ctx.outDir, fileName);
+
+  ctx.log(`Generating ${rowCount} rows, ${columns.length} columns, seed=${seed} -> ${fileName}`);
+
+  const lines: string[] = [columns.map(c => csvEscape(c.name)).join(',')];
+  for (let i = 0; i < rowCount; i++) {
+    const row = columns.map(col => {
+      if (col.nullProbability && rng() < col.nullProbability) return '';
+      return csvEscape(generateValue(rng, col, i));
+    });
+    lines.push(row.join(','));
+  }
+
+  fs.writeFileSync(filePath, lines.join('\n') + '\n', 'utf8');
+  const stats = fs.statSync(filePath);
+
+  return {
+    fileName,
+    filePath,
+    rowCount,
+    seed,
+    columnNames: columns.map(c => c.name).join(','),
+    sizeBytes: stats.size,
+  };
+}
+
+// ---------- Step ------------------------------------------------------------
 
 export default defineStep<GenerateCsvConfig>({
   async run(config, ctx) {
-    const rowCount = Number(config.rowCount ?? 100);
-    const columns = config.columns ?? [];
-    if (!columns.length) throw new Error('config.columns must define at least one column');
-
-    const seed = Number(config.seed ?? Date.now());
-    const rng = makeRng(seed);
-    const fileName = config.fileName ?? 'synthetic.csv';
-    const filePath = path.join(ctx.outDir, fileName);
-
-    ctx.log(`Generating ${rowCount} rows, ${columns.length} columns, seed=${seed}`);
-
-    const lines: string[] = [columns.map(c => csvEscape(c.name)).join(',')];
-    for (let i = 0; i < rowCount; i++) {
-      const row = columns.map(col => {
-        if (col.nullProbability && rng() < col.nullProbability) return '';
-        return csvEscape(generateValue(rng, col, i));
-      });
-      lines.push(row.join(','));
+    if (!config.files || config.files.length === 0) {
+      throw new Error('config.files must contain at least one file');
     }
 
-    fs.writeFileSync(filePath, lines.join('\n') + '\n', 'utf8');
-    const stats = fs.statSync(filePath);
-
-    return {
-      outputs: {
-        csvPath: filePath,
-        fileName,
-        rowCount,
-        columnNames: columns.map(c => c.name).join(','),
-        seed,
-        sizeBytes: stats.size,
-      },
-      artifacts: [filePath],
+    const outputs: Record<string, string | number | boolean> = {
+      totalFiles: config.files.length,
     };
+    const artifacts: string[] = [];
+
+    for (let index = 0; index < config.files.length; index++) {
+      const file = config.files[index];
+      const name = file.name ?? `f${index}`;
+      let result: OneFileResult;
+      try {
+        result = generateOneFile(file, index, ctx);
+      } catch (err) {
+        throw new Error(`File entry ${index} ("${name}") failed: ${(err as Error).message}`);
+      }
+      outputs[`${name}_csvPath`] = result.filePath;
+      outputs[`${name}_fileName`] = result.fileName;
+      outputs[`${name}_rowCount`] = result.rowCount;
+      outputs[`${name}_columnNames`] = result.columnNames;
+      outputs[`${name}_seed`] = result.seed;
+      outputs[`${name}_sizeBytes`] = result.sizeBytes;
+      artifacts.push(result.filePath);
+    }
+
+    return { outputs, artifacts };
   },
 });
