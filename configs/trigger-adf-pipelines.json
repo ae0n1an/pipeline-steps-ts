@@ -9,7 +9,7 @@
     {
       "name": "copyOrders",
       "pipelineName": "CopyOrdersPipeline",
-      "parameters": { "sourcePath": "{{steps.genUsersCsv.outputs.csvPath}}" }
+      "parameters": { "sourcePath": "{{steps.genUsersCsv.outputs.usersCsv_csvPath}}" }
     },
     {
       "name": "copyInvoices",
