@@ -846,7 +846,3 @@ git commit -m "docs: wire trigger-adf-pipeline step into pipeline YAML and READM
 ```
 
 ---
-
-## Post-plan note: this directory is not a git repository
-
-`git status` in `/Users/maxverhoef/ClaudeProjects/pipeline-steps-ts` currently reports "not a git repository." Every commit step above will fail until `git init` (or cloning into an existing repo) happens. Before Task 1's commit step, run `git init` and make an initial commit of the pre-existing files (`README.md`, `runner/`, `steps/`, `configs/`, `.pipelines/`, `package.json`, `tsconfig.json`) if the user confirms that's desired — otherwise skip all commit steps and leave changes unstaged.
