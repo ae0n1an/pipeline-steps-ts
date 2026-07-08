@@ -35,6 +35,17 @@ stages:
               SecretsFilter: 'gpg-public-key'
               RunAsPreJob: false
 
+          # ---- Fetch an ARM access token for the ADF management API -----
+          - task: AzureCLI@2
+            displayName: 'Fetch ADF access token'
+            inputs:
+              azureSubscription: 'my-service-connection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                TOKEN=$(az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv)
+                echo "##vso[task.setvariable variable=adfAccessToken;issecret=true]$TOKEN"
+
           # ---- Step 1: generate synthetic CSV -------------------------
           - script: >
               npx tsx runner/run-step.ts
@@ -54,6 +65,17 @@ stages:
             displayName: 'GPG encrypt CSV with Key Vault key'
             env:
               GPG_PUBLIC_KEY: $(gpg-public-key)   # secrets are never auto-exposed to scripts
+
+          # ---- Step 3: trigger ADF pipelines in parallel, poll to done -
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/trigger-adf-pipeline.ts
+              --config configs/trigger-adf-pipelines.json
+              --name triggerAdf
+            name: triggerAdf
+            displayName: 'Trigger ADF pipelines'
+            env:
+              ADF_ACCESS_TOKEN: $(adfAccessToken)
 
           - task: PublishPipelineArtifact@1
             displayName: 'Publish step outputs'

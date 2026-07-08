@@ -13,9 +13,11 @@ runner/
 steps/
   generate-synthetic-csv.ts   # mock CSV from typed column configs
   gpg-encrypt-file.ts         # GPG-encrypt with a key from Azure Key Vault
+  trigger-adf-pipeline.ts     # trigger + poll ADF pipeline run(s) in parallel
 configs/
   generate-users-csv.json
   gpg-encrypt-users-csv.json
+  trigger-adf-pipelines.json
 azure-pipelines.yml
 tsconfig.json     # strict, noEmit (tsx executes TS directly)
 ```
@@ -59,6 +61,18 @@ npx tsx runner/run-step.ts \
   --name gpgEncryptCsv
 ```
 
+Trigger ADF pipelines (needs an ARM access token — see the `AzureCLI@2` task
+in `.pipelines/azure-pipelines.yml`, or `az account get-access-token
+--resource https://management.azure.com/` locally):
+
+```bash
+export ADF_ACCESS_TOKEN="$(az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv)"
+npx tsx runner/run-step.ts \
+  --step steps/trigger-adf-pipeline.ts \
+  --config configs/trigger-adf-pipelines.json \
+  --name triggerAdf
+```
+
 No build/dist step: `tsx` executes TypeScript directly, in the pipeline and
 locally. If you prefer compiled output, flip `noEmit` off, add `outDir`, and
 run `node dist/runner/run-step.js` instead.
@@ -69,7 +83,10 @@ run `node dist/runner/run-step.js` instead.
    resolved from the upstream `output.json`; `{{env.VAR}}` also works.
 2. **Pipeline output variables** — every output is emitted via
    `##vso[task.setvariable …;isOutput=true]`; read as
-   `$(genUsersCsv.genUsersCsv.rowCount)` or via `stageDependencies`.
+   `$(genUsersCsv.genUsersCsv.rowCount)` or via `stageDependencies`. For
+   `trigger-adf-pipeline`, each pipeline run's outputs are prefixed by its
+   configured `name` (or `p0`, `p1`, … by index), e.g.
+   `$(triggerAdf.triggerAdf.copyOrders_status)`.
 3. **Published artifacts** — the `step-output/` tree is published whole.
 
 ## Azure Key Vault
