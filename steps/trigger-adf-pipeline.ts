@@ -80,3 +80,72 @@ export function buildPollUrl(target: AdfTarget, runId: string): string {
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status);
 }
+
+// ---------- Network layer (dependency-injected for testing) ---------------
+
+export interface FetchLike {
+  (
+    url: string,
+    init?: { method?: string; headers?: Record<string, string>; body?: string },
+  ): Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }>;
+}
+
+export interface AdfDeps {
+  fetchImpl: FetchLike;
+  sleepImpl: (ms: number) => Promise<void>;
+  nowImpl: () => number;
+}
+
+export const defaultDeps: AdfDeps = {
+  fetchImpl: fetch as unknown as FetchLike,
+  sleepImpl: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
+  nowImpl: () => Date.now(),
+};
+
+export async function triggerRun(
+  target: AdfTarget,
+  run: AdfPipelineRun,
+  accessToken: string,
+  fetchImpl: FetchLike,
+): Promise<string> {
+  const res = await fetchImpl(buildCreateRunUrl(target, run.pipelineName), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(run.parameters ?? {}),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`createRun failed for "${run.pipelineName}" (HTTP ${res.status}): ${body}`);
+  }
+  const data = await res.json();
+  if (!data.runId) throw new Error(`createRun response for "${run.pipelineName}" had no runId`);
+  return data.runId as string;
+}
+
+export async function pollUntilTerminal(
+  target: AdfTarget,
+  runId: string,
+  accessToken: string,
+  opts: { pollIntervalMs: number; timeoutMs: number },
+  deps: AdfDeps,
+): Promise<{ status: string; message?: string }> {
+  const startedAt = deps.nowImpl();
+  for (;;) {
+    if (deps.nowImpl() - startedAt >= opts.timeoutMs) {
+      return { status: 'TimedOut', message: `Polling exceeded timeoutMs=${opts.timeoutMs}` };
+    }
+    const res = await deps.fetchImpl(buildPollUrl(target, runId), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (isTerminalStatus(data.status)) {
+        return { status: data.status, message: data.message };
+      }
+    }
+    await deps.sleepImpl(opts.pollIntervalMs);
+  }
+}
