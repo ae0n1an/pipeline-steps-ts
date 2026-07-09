@@ -22,6 +22,8 @@ test('globToRegExp: * matches within a path segment, ** matches across segments'
 test('globToRegExp escapes regex-special characters literally', () => {
   assert.equal(globToRegExp('a.b+c').test('a.b+c'), true);
   assert.equal(globToRegExp('a.b+c').test('aXb+c'), false); // "." must be literal, not "any char"
+  assert.equal(globToRegExp('file?.gpg').test('file?.gpg'), true);
+  assert.equal(globToRegExp('file?.gpg').test('fileX.gpg'), false); // "?" must be literal, not "optional prior char"
 });
 
 test('literalPrefix returns the substring before the first wildcard', () => {

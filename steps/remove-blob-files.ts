@@ -54,7 +54,7 @@ export function globToRegExp(pattern: string): RegExp {
       } else {
         re += '[^/]*';
       }
-    } else if ('.+^${}()|[]\\'.includes(c)) {
+    } else if ('.+^${}()|[]\\?'.includes(c)) {
       re += `\\${c}`;
     } else {
       re += c;
