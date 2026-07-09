@@ -19,6 +19,7 @@
   "type": "module",
   "dependencies": {
     "@azure/identity": "^4.13.1",
-    "@azure/storage-blob": "^12.33.0"
+    "@azure/storage-blob": "^12.33.0",
+    "ajv": "^8.20.0"
   }
 }
