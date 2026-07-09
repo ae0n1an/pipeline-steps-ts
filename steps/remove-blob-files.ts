@@ -78,34 +78,55 @@ async function runOnePattern(
   ctx: StepContext,
 ): Promise<PatternResult> {
   const name = entry.name ?? `f${index}`;
+  let matches: string[] = [];
   try {
     const target = resolveBlobTarget(entry, config);
     const client = clientFactory(target.accountUrl);
     const regex = globToRegExp(entry.pattern);
     const prefix = literalPrefix(entry.pattern);
 
-    const matches: string[] = [];
     for await (const blob of client.listBlobs(target.containerName, prefix)) {
       if (regex.test(blob.name)) matches.push(blob.name);
     }
 
     ctx.log(`Pattern "${entry.pattern}" (${name}) matched ${matches.length} blob(s)`);
 
-    await Promise.all(matches.map(blobPath => client.deleteBlob(target.containerName, blobPath)));
+    // Promise.allSettled (not Promise.all) so a mid-batch delete failure still
+    // reports which blobs were actually deleted, rather than understating a
+    // partial delete as "0 deleted" and leaving the summary artifact wrong.
+    const deleteResults = await Promise.allSettled(
+      matches.map(blobPath => client.deleteBlob(target.containerName, blobPath)),
+    );
+    const deletedPaths = matches.filter((_, i) => deleteResults[i].status === 'fulfilled');
+    const failedDeletes = deleteResults.filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected',
+    );
+
+    if (failedDeletes.length > 0) {
+      return {
+        name,
+        pattern: entry.pattern,
+        matchedCount: matches.length,
+        deletedCount: deletedPaths.length,
+        deletedPaths,
+        status: 'Failed',
+        message: `${failedDeletes.length}/${matches.length} blob(s) failed to delete: ${(failedDeletes[0].reason as Error).message}`,
+      };
+    }
 
     return {
       name,
       pattern: entry.pattern,
       matchedCount: matches.length,
-      deletedCount: matches.length,
-      deletedPaths: matches,
+      deletedCount: deletedPaths.length,
+      deletedPaths,
       status: 'Succeeded',
     };
   } catch (err) {
     return {
       name,
       pattern: entry.pattern,
-      matchedCount: 0,
+      matchedCount: matches.length,
       deletedCount: 0,
       deletedPaths: [],
       status: 'Failed',

@@ -96,6 +96,42 @@ test('runAll processes multiple patterns concurrently; one failure does not bloc
   }
 });
 
+test('runAll accurately reports partial deletion when one of several matched blobs fails to delete', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rmblob-test-'));
+  try {
+    const fake = createFakeBlobStorageClient();
+    fake.seed('c1', 'inbound/a.gpg', Buffer.from('a'));
+    fake.seed('c1', 'inbound/b.gpg', Buffer.from('b'));
+    // Wrap the fake so deleting "b" fails, while "a" succeeds for real.
+    const flaky = {
+      ...fake,
+      deleteBlob: async (containerName: string, blobPath: string) => {
+        if (blobPath === 'inbound/b.gpg') throw new Error('simulated delete failure');
+        return fake.deleteBlob(containerName, blobPath);
+      },
+    };
+    const config = {
+      accountUrl: 'https://acct.blob.core.windows.net',
+      containerName: 'c1',
+      patterns: [{ name: 'flaky', pattern: 'inbound/*.gpg' }],
+    };
+    await assert.rejects(
+      () => runAll(config, fakeCtx(outDir), () => flaky),
+      /1\/1 pattern\(s\) failed to process[\s\S]*flaky[\s\S]*simulated delete failure/,
+    );
+    // "a" was genuinely deleted despite the batch reporting overall failure —
+    // the summary must reflect that, not claim 0 deleted.
+    assert.equal(await fake.blobExists('c1', 'inbound/a.gpg'), false);
+    assert.equal(await fake.blobExists('c1', 'inbound/b.gpg'), true);
+    const summary = JSON.parse(fs.readFileSync(path.join(outDir, 'delete-summary.json'), 'utf8'));
+    assert.equal(summary[0].matchedCount, 2);
+    assert.equal(summary[0].deletedCount, 1);
+    assert.deepEqual(summary[0].deletedPaths, ['inbound/a.gpg']);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
 test('runAll throws when config.patterns is empty', async () => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rmblob-test-'));
   try {
