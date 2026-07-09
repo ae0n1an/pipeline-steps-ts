@@ -16,5 +16,9 @@
     "tsx": "^4.23.0",
     "typescript": "^6.0.3"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@azure/identity": "^4.13.1",
+    "@azure/storage-blob": "^12.33.0"
+  }
 }
