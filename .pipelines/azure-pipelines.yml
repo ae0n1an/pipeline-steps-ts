@@ -125,6 +125,12 @@ stages:
             artifact: step-output
 
           # ---- Step: verify + download the outbound result file -------
+          # NOTE: azureClientId/azureClientSecret/azureTenantId are set via
+          # task.setvariable in the Generate stage's AzureCLI@2 task (above);
+          # pipeline variables set that way do NOT cross stage boundaries.
+          # A real pipeline needs its own AzureCLI@2 task here in Deliver,
+          # with addSpnToEnvironment: true, to re-export these for this step
+          # — illustrative only, like the rest of this file's placeholders.
           - script: >
               npx tsx runner/run-step.ts
               --step steps/verify-and-download-blob.ts
