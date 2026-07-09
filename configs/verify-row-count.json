@@ -1,0 +1,10 @@
+{
+  "files": [
+    {
+      "name": "outboundResult",
+      "filePath": "{{steps.verifyResult.outputs.result_localPath}}",
+      "format": "json",
+      "minRows": 1
+    }
+  ]
+}

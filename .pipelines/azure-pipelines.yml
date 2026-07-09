@@ -143,6 +143,33 @@ stages:
               AZURE_CLIENT_SECRET: $(azureClientSecret)
               AZURE_TENANT_ID: $(azureTenantId)
 
+          # ---- Step: verify the outbound result's row count -------------
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/verify-row-count.ts
+              --config configs/verify-row-count.json
+              --name verifyRowCount
+            name: verifyRowCount
+            displayName: 'Verify outbound result row count'
+
+          # ---- Step: validate the outbound result against its schema ---
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/validate-json-schema.ts
+              --config configs/validate-json-schema.json
+              --name validateSchema
+            name: validateSchema
+            displayName: 'Validate outbound result JSON schema'
+
+          # ---- Step: cross-check inbound CSV against outbound result ---
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/validate-business-logic.ts
+              --config configs/validate-business-logic.json
+              --name validateBusinessLogic
+            name: validateBusinessLogic
+            displayName: 'Validate inbound/outbound business logic'
+
           - script: |
               echo "Encrypted artifact from upstream: $(encryptedFile)"
               cat $(Pipeline.Workspace)/step-output/gpgEncryptCsv/output.json

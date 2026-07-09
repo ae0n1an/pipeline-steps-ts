@@ -1,0 +1,9 @@
+{
+  "files": [
+    {
+      "name": "outboundResult",
+      "filePath": "{{steps.verifyResult.outputs.result_localPath}}",
+      "schemaPath": "configs/schemas/outbound-result-schema.json"
+    }
+  ]
+}

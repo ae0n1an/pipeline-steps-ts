@@ -13,12 +13,16 @@ runner/
 steps/
   lib/
     blob-client.ts             # shared Azure Blob Storage client (real + fake, used by the 3 steps below)
+    csv.ts                    # shared CSV parser (used by verify-row-count, validate-business-logic)
   generate-synthetic-csv.ts   # mock CSV from typed column configs
   gpg-encrypt-file.ts         # GPG-encrypt with a key from Azure Key Vault
   trigger-adf-pipeline.ts     # trigger + poll ADF pipeline run(s) in parallel
   remove-blob-files.ts        # delete blobs matching a glob path pattern
   upload-to-blob.ts           # upload local file(s) to blob storage
   verify-and-download-blob.ts # verify expected blob(s) exist and download them
+  verify-row-count.ts         # check a file's row/entry count against a min/max range
+  validate-json-schema.ts     # validate a JSON file against a caller-supplied JSON Schema
+  validate-business-logic.ts  # declarative cross-file rules (e.g. inbound CSV vs outbound JSON)
 configs/
   generate-users-csv.json
   gpg-encrypt-users-csv.json
@@ -26,6 +30,10 @@ configs/
   remove-blob-files.json
   upload-to-blob.json
   verify-and-download-blob.json
+  verify-row-count.json
+  validate-json-schema.json
+  validate-business-logic.json
+  schemas/outbound-result-schema.json
 azure-pipelines.yml
 tsconfig.json     # strict, noEmit (tsx executes TS directly)
 ```
@@ -51,9 +59,11 @@ export default defineStep<MyConfig>({
 column definitions are a discriminated union, so invalid combinations
 (e.g. `values` on an `int` column) fail `npm run typecheck`.
 
-The one exception to "every step is standalone": the three blob-storage
-steps share `steps/lib/blob-client.ts` for Azure auth/client setup, since
-duplicating it three times bought nothing.
+The two exceptions to "every step is standalone": `steps/lib/blob-client.ts`
+(shared by the three blob-storage steps) and `steps/lib/csv.ts` (shared by
+`verify-row-count` and `validate-business-logic`) — both cases where three
+or two steps needed identical, non-trivial logic and duplicating it bought
+nothing.
 
 ## Running
 
@@ -106,6 +116,25 @@ npx tsx runner/run-step.ts \
   --name verifyResult
 ```
 
+Payload validation steps (pure local file I/O, no external auth needed):
+
+```bash
+npx tsx runner/run-step.ts \
+  --step steps/verify-row-count.ts \
+  --config configs/verify-row-count.json \
+  --name verifyRowCount
+
+npx tsx runner/run-step.ts \
+  --step steps/validate-json-schema.ts \
+  --config configs/validate-json-schema.json \
+  --name validateSchema
+
+npx tsx runner/run-step.ts \
+  --step steps/validate-business-logic.ts \
+  --config configs/validate-business-logic.json \
+  --name validateBusinessLogic
+```
+
 No build/dist step: `tsx` executes TypeScript directly, in the pipeline and
 locally. If you prefer compiled output, flip `noEmit` off, add `outDir`, and
 run `node dist/runner/run-step.js` instead.
@@ -146,6 +175,18 @@ connection's SPN as environment variables via `AzureCLI@2`'s
 step's `env`; `DefaultAzureCredential`'s `EnvironmentCredential` fallback
 picks these up automatically. Locally, `az login` is enough (via
 `DefaultAzureCredential`'s `AzureCliCredential` fallback).
+
+## Payload Validation
+
+`verify-row-count`, `validate-json-schema`, and `validate-business-logic`
+are pure local-file steps — no Azure auth, no network calls. All three
+process their `files` array **sequentially** and **fail fast** (unlike the
+blob storage steps' concurrent/wait-for-all model), since these are
+synchronous local reads, not independent network calls.
+`validate-business-logic`'s rule set is declarative and bounded on
+purpose — see the four `Rule` types in `steps/validate-business-logic.ts`
+— rather than accepting arbitrary custom validator code, keeping every
+step's config as plain JSON data.
 
 ## Prior art
 
