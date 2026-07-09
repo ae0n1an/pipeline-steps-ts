@@ -1,0 +1,7 @@
+{
+  "accountUrl": "https://mystorageaccount.blob.core.windows.net",
+  "containerName": "inbound",
+  "patterns": [
+    { "name": "oldPayloads", "pattern": "payloads/*.gpg" }
+  ]
+}

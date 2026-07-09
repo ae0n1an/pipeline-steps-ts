@@ -35,16 +35,21 @@ stages:
               SecretsFilter: 'gpg-public-key'
               RunAsPreJob: false
 
-          # ---- Fetch an ARM access token for the ADF management API -----
+          # ---- Fetch an ARM access token for the ADF management API,
+          # and export SPN credentials for DefaultAzureCredential -------
           - task: AzureCLI@2
-            displayName: 'Fetch ADF access token'
+            displayName: 'Fetch ADF access token and export SPN credentials'
             inputs:
               azureSubscription: 'my-service-connection'
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
+              addSpnToEnvironment: true
               inlineScript: |
                 TOKEN=$(az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv)
                 echo "##vso[task.setvariable variable=adfAccessToken;issecret=true]$TOKEN"
+                echo "##vso[task.setvariable variable=azureClientId;issecret=true]$servicePrincipalId"
+                echo "##vso[task.setvariable variable=azureClientSecret;issecret=true]$servicePrincipalKey"
+                echo "##vso[task.setvariable variable=azureTenantId;issecret=true]$tenantId"
 
           # ---- Step 1: generate synthetic CSV -------------------------
           - script: >
@@ -65,6 +70,32 @@ stages:
             displayName: 'GPG encrypt CSV with Key Vault key'
             env:
               GPG_PUBLIC_KEY: $(gpg-public-key)   # secrets are never auto-exposed to scripts
+
+          # ---- Step: clean up old inbound payloads before uploading ---
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/remove-blob-files.ts
+              --config configs/remove-blob-files.json
+              --name cleanupInbound
+            name: cleanupInbound
+            displayName: 'Remove old inbound blob payloads'
+            env:
+              AZURE_CLIENT_ID: $(azureClientId)
+              AZURE_CLIENT_SECRET: $(azureClientSecret)
+              AZURE_TENANT_ID: $(azureTenantId)
+
+          # ---- Step: upload the encrypted payload to inbound storage --
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/upload-to-blob.ts
+              --config configs/upload-to-blob.json
+              --name uploadPayload
+            name: uploadPayload
+            displayName: 'Upload encrypted payload to inbound blob storage'
+            env:
+              AZURE_CLIENT_ID: $(azureClientId)
+              AZURE_CLIENT_SECRET: $(azureClientSecret)
+              AZURE_TENANT_ID: $(azureTenantId)
 
           # ---- Step 3: trigger ADF pipelines in parallel, poll to done -
           - script: >
@@ -92,6 +123,20 @@ stages:
         steps:
           - download: current
             artifact: step-output
+
+          # ---- Step: verify + download the outbound result file -------
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/verify-and-download-blob.ts
+              --config configs/verify-and-download-blob.json
+              --name verifyResult
+            name: verifyResult
+            displayName: 'Verify and download outbound result'
+            env:
+              AZURE_CLIENT_ID: $(azureClientId)
+              AZURE_CLIENT_SECRET: $(azureClientSecret)
+              AZURE_TENANT_ID: $(azureTenantId)
+
           - script: |
               echo "Encrypted artifact from upstream: $(encryptedFile)"
               cat $(Pipeline.Workspace)/step-output/gpgEncryptCsv/output.json

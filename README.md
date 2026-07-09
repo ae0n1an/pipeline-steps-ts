@@ -11,13 +11,21 @@ runner/
   types.ts        # StepModule / StepContext / StepResult + defineStep()
   run-step.ts     # generic runner (the only framework code)
 steps/
+  lib/
+    blob-client.ts             # shared Azure Blob Storage client (real + fake, used by the 3 steps below)
   generate-synthetic-csv.ts   # mock CSV from typed column configs
   gpg-encrypt-file.ts         # GPG-encrypt with a key from Azure Key Vault
   trigger-adf-pipeline.ts     # trigger + poll ADF pipeline run(s) in parallel
+  remove-blob-files.ts        # delete blobs matching a glob path pattern
+  upload-to-blob.ts           # upload local file(s) to blob storage
+  verify-and-download-blob.ts # verify expected blob(s) exist and download them
 configs/
   generate-users-csv.json
   gpg-encrypt-users-csv.json
   trigger-adf-pipelines.json
+  remove-blob-files.json
+  upload-to-blob.json
+  verify-and-download-blob.json
 azure-pipelines.yml
 tsconfig.json     # strict, noEmit (tsx executes TS directly)
 ```
@@ -42,6 +50,10 @@ export default defineStep<MyConfig>({
 `defineStep<TConfig>()` gives you full inference inside `run` — the CSV step's
 column definitions are a discriminated union, so invalid combinations
 (e.g. `values` on an `int` column) fail `npm run typecheck`.
+
+The one exception to "every step is standalone": the three blob-storage
+steps share `steps/lib/blob-client.ts` for Azure auth/client setup, since
+duplicating it three times bought nothing.
 
 ## Running
 
@@ -73,6 +85,27 @@ npx tsx runner/run-step.ts \
   --name triggerAdf
 ```
 
+Blob storage steps (need `DefaultAzureCredential` to resolve — e.g.
+`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` env vars, or `az
+login` locally):
+
+```bash
+npx tsx runner/run-step.ts \
+  --step steps/remove-blob-files.ts \
+  --config configs/remove-blob-files.json \
+  --name cleanupInbound
+
+npx tsx runner/run-step.ts \
+  --step steps/upload-to-blob.ts \
+  --config configs/upload-to-blob.json \
+  --name uploadPayload
+
+npx tsx runner/run-step.ts \
+  --step steps/verify-and-download-blob.ts \
+  --config configs/verify-and-download-blob.json \
+  --name verifyResult
+```
+
 No build/dist step: `tsx` executes TypeScript directly, in the pipeline and
 locally. If you prefer compiled output, flip `noEmit` off, add `outDir`, and
 run `node dist/runner/run-step.js` instead.
@@ -101,6 +134,18 @@ auto-detects the recipient fingerprint, encrypts, and emits the `.gpg`
 artifact. Alternative: set `keyVaultUrl` + `secretName` in the config and
 install `@azure/identity @azure/keyvault-secrets` for direct SDK fetch.
 Only the public key ever touches the pipeline.
+
+## Azure Blob Storage
+
+`remove-blob-files`, `upload-to-blob`, and `verify-and-download-blob` all
+authenticate via `DefaultAzureCredential` against an `accountUrl` — no
+connection string or SAS token. In Azure Pipelines, export the service
+connection's SPN as environment variables via `AzureCLI@2`'s
+`addSpnToEnvironment: true` (see `.pipelines/azure-pipelines.yml`) and map
+`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` into each blob
+step's `env`; `DefaultAzureCredential`'s `EnvironmentCredential` fallback
+picks these up automatically. Locally, `az login` is enough (via
+`DefaultAzureCredential`'s `AzureCliCredential` fallback).
 
 ## Prior art
 

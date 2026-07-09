@@ -1,0 +1,11 @@
+{
+  "accountUrl": "https://mystorageaccount.blob.core.windows.net",
+  "containerName": "inbound",
+  "files": [
+    {
+      "name": "usersCsvGpg",
+      "localPath": "{{steps.gpgEncryptCsv.outputs.usersCsvGpg_encryptedPath}}",
+      "blobPath": "payloads/users.csv.gpg"
+    }
+  ]
+}

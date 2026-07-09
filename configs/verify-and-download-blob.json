@@ -1,0 +1,7 @@
+{
+  "accountUrl": "https://mystorageaccount.blob.core.windows.net",
+  "containerName": "outbound",
+  "files": [
+    { "name": "result", "blobPath": "results/users-result.json" }
+  ]
+}
