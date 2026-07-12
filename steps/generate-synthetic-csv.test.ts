@@ -86,6 +86,32 @@ test('fails fast on the first invalid entry, naming it in the error, after writi
   }
 });
 
+test('uses a column\'s custom header in the CSV header row and in columnNames, falling back to name otherwise', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'csv-test-'));
+  try {
+    const config = {
+      files: [
+        {
+          name: 'usersCsv',
+          rowCount: 1,
+          seed: 1,
+          columns: [
+            { name: 'id', header: 'ID Number', type: 'uuid' as const },
+            { name: 'email', type: 'email' as const },
+          ],
+        },
+      ],
+    };
+    const result = await step.run(config, fakeCtx(outDir));
+    assert.equal(result.outputs?.usersCsv_columnNames, 'ID Number,email');
+    const filePath = result.outputs?.usersCsv_csvPath as string;
+    const [headerLine] = fs.readFileSync(filePath, 'utf8').trim().split('\n');
+    assert.equal(headerLine, 'ID Number,email');
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
 test('throws when config.files is empty', async () => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'csv-test-'));
   try {

@@ -15,6 +15,8 @@ import { defineStep, type StepContext } from '../runner/types';
 
 interface BaseColumn {
   name: string;
+  /** Header row text for this column; defaults to name. */
+  header?: string;
   /** 0..1 chance of emitting an empty cell, for sparse data. */
   nullProbability?: number;
 }
@@ -130,7 +132,7 @@ function generateOneFile(file: FileConfig, index: number, ctx: StepContext): One
 
   ctx.log(`Generating ${rowCount} rows, ${columns.length} columns, seed=${seed} -> ${fileName}`);
 
-  const lines: string[] = [columns.map(c => csvEscape(c.name)).join(',')];
+  const lines: string[] = [columns.map(c => csvEscape(c.header ?? c.name)).join(',')];
   for (let i = 0; i < rowCount; i++) {
     const row = columns.map(col => {
       if (col.nullProbability && rng() < col.nullProbability) return '';
@@ -147,7 +149,7 @@ function generateOneFile(file: FileConfig, index: number, ctx: StepContext): One
     filePath,
     rowCount,
     seed,
-    columnNames: columns.map(c => c.name).join(','),
+    columnNames: columns.map(c => c.header ?? c.name).join(','),
     sizeBytes: stats.size,
   };
 }
