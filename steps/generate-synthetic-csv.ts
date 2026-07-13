@@ -30,7 +30,8 @@ export type ColumnConfig =
   | (BaseColumn & { type: 'date'; from?: string; to?: string; format?: 'iso' | 'date' })
   | (BaseColumn & { type: 'enum'; values: string[] })
   | (BaseColumn & { type: 'template'; template: string })
-  | (BaseColumn & { type: 'constant'; value: string | number | boolean });
+  | (BaseColumn & { type: 'constant'; value: string | number | boolean })
+  | (BaseColumn & { type: 'sequence'; start?: number; step?: number; max?: number });
 
 export interface FileConfig {
   /** Output key prefix for this file's results; defaults to "f{index}". */
@@ -97,6 +98,15 @@ function generateValue(rng: Rng, col: ColumnConfig, rowIndex: number): string | 
     case 'enum': return pick(rng, col.values);
     case 'template': return col.template.replace('{rowIndex}', String(rowIndex));
     case 'constant': return col.value;
+    case 'sequence': {
+      const start = col.start ?? 0;
+      const step = col.step ?? 1;
+      const value = start + rowIndex * step;
+      if (col.max !== undefined && value > col.max) {
+        throw new Error(`Sequence column "${col.name}" exceeded max ${col.max} at row ${rowIndex} (value ${value})`);
+      }
+      return value;
+    }
     default: {
       const never: never = col;
       throw new Error(`Unknown column type: ${JSON.stringify(never)}`);

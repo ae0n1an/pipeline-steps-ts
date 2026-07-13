@@ -112,6 +112,84 @@ test('uses a column\'s custom header in the CSV header row and in columnNames, f
   }
 });
 
+test('sequence column increments per row from a configurable start/step', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'csv-test-'));
+  try {
+    const config = {
+      files: [
+        {
+          name: 'usersCsv',
+          rowCount: 3,
+          seed: 1,
+          columns: [{ name: 'employeeNumber', type: 'sequence' as const, start: 900000 }],
+        },
+      ],
+    };
+    const result = await step.run(config, fakeCtx(outDir));
+    const filePath = result.outputs?.usersCsv_csvPath as string;
+    const [, ...rows] = fs.readFileSync(filePath, 'utf8').trim().split('\n');
+    assert.deepEqual(rows, ['900000', '900001', '900002']);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('sequence columns in two separate files align row-for-row when configured identically', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'csv-test-'));
+  try {
+    const employeeCol = { name: 'employeeNumber', type: 'sequence' as const, start: 900000 };
+    const config = {
+      files: [
+        { name: 'fileA', rowCount: 3, seed: 1, columns: [employeeCol] },
+        { name: 'fileB', rowCount: 3, seed: 2, columns: [employeeCol] },
+      ],
+    };
+    const result = await step.run(config, fakeCtx(outDir));
+    const rowsA = fs.readFileSync(result.outputs?.fileA_csvPath as string, 'utf8').trim().split('\n').slice(1);
+    const rowsB = fs.readFileSync(result.outputs?.fileB_csvPath as string, 'utf8').trim().split('\n').slice(1);
+    assert.deepEqual(rowsA, rowsB);
+    assert.deepEqual(rowsA, ['900000', '900001', '900002']);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('sequence column defaults to start 0, step 1, and throws once max is exceeded', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'csv-test-'));
+  try {
+    const config = {
+      files: [
+        {
+          name: 'noMax',
+          rowCount: 2,
+          seed: 1,
+          columns: [{ name: 'n', type: 'sequence' as const }],
+        },
+      ],
+    };
+    const result = await step.run(config, fakeCtx(outDir));
+    const rows = fs.readFileSync(result.outputs?.noMax_csvPath as string, 'utf8').trim().split('\n').slice(1);
+    assert.deepEqual(rows, ['0', '1']);
+
+    const boundedConfig = {
+      files: [
+        {
+          name: 'bounded',
+          rowCount: 3,
+          seed: 1,
+          columns: [{ name: 'n', type: 'sequence' as const, start: 8, step: 1, max: 9 }],
+        },
+      ],
+    };
+    await assert.rejects(
+      async () => step.run(boundedConfig, fakeCtx(outDir)),
+      /File entry 0 \("bounded"\) failed:.*max/,
+    );
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
 test('throws when config.files is empty', async () => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'csv-test-'));
   try {
