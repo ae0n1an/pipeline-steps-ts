@@ -28,13 +28,13 @@ test/
     sparse-nulls.json
     sequence-ids.json
     custom-headers.json
-    generate-then-validate.json
+    generate-then-verify.json
   golden/                       # one golden result per scenario, checked into git
     basic-users.json
     sparse-nulls.json
     sequence-ids.json
     custom-headers.json
-    generate-then-validate.json
+    generate-then-verify.json
   lib/
     scenario-harness.ts         # run / normalize / compare / update logic
   scenarios.test.ts             # discovers fixtures, one node:test per scenario
@@ -181,10 +181,11 @@ harness's core mechanics:
    types.
 3. `sequence-ids.json` — exercises the `sequence` column type.
 4. `custom-headers.json` — exercises the `header` field.
-5. `generate-then-validate.json` — chains `generate-synthetic-csv` →
-   `validate-json-schema` in one scenario, proving multi-step scenario
+5. `generate-then-verify.json` — chains `generate-synthetic-csv` →
+   `verify-row-count` in one scenario, proving multi-step scenario
    composition and `{{steps.X.outputs.Y}}` interpolation work through the
-   harness end-to-end.
+   harness end-to-end. (Not `validate-json-schema`: that step needs JSON
+   input, and `generate-synthetic-csv` only produces CSV.)
 
 ## Out of scope
 
