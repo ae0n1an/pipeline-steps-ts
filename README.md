@@ -188,6 +188,35 @@ purpose — see the four `Rule` types in `steps/validate-business-logic.ts`
 — rather than accepting arbitrary custom validator code, keeping every
 step's config as plain JSON data.
 
+## Scenario regression testing
+
+`test/scenarios/*.json` are small declarative fixtures — one or more
+chained step invocations — run through the real `runner/run-step.ts` CLI
+(exactly as the pipeline YAML does) via `npm run test:scenarios`. Each
+scenario's normalized result (outputs, artifact paths, and a sha256 hash
+of every artifact's actual bytes — this is what catches a regression that
+changes generated *values* without changing row counts or structure) is
+diffed against a checked-in golden file in `test/golden/`.
+
+This is a different layer from the `steps/*.test.ts` unit tests: those
+exercise one step's logic against a fake/injected client; this exercises
+real chained CLI invocations end-to-end, the same way production runs
+them. It's slower (real subprocess spawns) and lives in its own `test/`
+directory and `npm` script on purpose — not mixed into the fast `npm test`
+suite.
+
+A missing golden is always a failure, never silently created:
+
+```bash
+npm run test:scenarios                    # compare against goldens (CI runs this)
+UPDATE_GOLDENS=1 npm run test:scenarios   # (re)write goldens; review the git diff before committing
+```
+
+Add a new scenario by dropping a `test/scenarios/<name>.json` file (see
+the existing files for the `{ description?, steps: [{ step, config, name
+}] }` shape) and running `UPDATE_GOLDENS=1 npm run test:scenarios` once to
+create its golden.
+
 ## Prior art
 
 If you need org-wide reusable tasks with a UI in the pipeline editor, the
