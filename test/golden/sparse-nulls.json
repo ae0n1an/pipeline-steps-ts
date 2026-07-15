@@ -1,0 +1,20 @@
+{
+  "gen": {
+    "ok": true,
+    "outputs": {
+      "totalFiles": 1,
+      "sparse_csvPath": "step-output/gen/synthetic-0.csv",
+      "sparse_fileName": "synthetic-0.csv",
+      "sparse_rowCount": 20,
+      "sparse_columnNames": "id,nickname,score,active",
+      "sparse_seed": 7,
+      "sparse_sizeBytes": 959
+    },
+    "artifacts": [
+      "step-output/gen/synthetic-0.csv"
+    ],
+    "fileHashes": {
+      "step-output/gen/synthetic-0.csv": "sha256:dafcd22cdde4ab98d951cb828555f61c1e71a705ad1d66607c841294300eb6d8"
+    }
+  }
+}

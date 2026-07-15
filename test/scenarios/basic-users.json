@@ -1,0 +1,26 @@
+{
+  "description": "Mirrors configs/generate-users-csv.json - baseline synthetic user generation.",
+  "steps": [
+    {
+      "step": "steps/generate-synthetic-csv.ts",
+      "name": "gen",
+      "config": {
+        "files": [
+          {
+            "name": "users",
+            "fileName": "users.csv",
+            "rowCount": 10,
+            "seed": 42,
+            "columns": [
+              { "name": "id", "type": "uuid" },
+              { "name": "firstName", "type": "firstName" },
+              { "name": "lastName", "type": "lastName" },
+              { "name": "email", "type": "email" },
+              { "name": "age", "type": "int", "min": 18, "max": 90 }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

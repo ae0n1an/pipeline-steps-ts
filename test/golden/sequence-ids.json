@@ -1,0 +1,20 @@
+{
+  "gen": {
+    "ok": true,
+    "outputs": {
+      "totalFiles": 1,
+      "employees_csvPath": "step-output/gen/synthetic-0.csv",
+      "employees_fileName": "synthetic-0.csv",
+      "employees_rowCount": 5,
+      "employees_columnNames": "employeeNumber,fullName",
+      "employees_seed": 1,
+      "employees_sizeBytes": 123
+    },
+    "artifacts": [
+      "step-output/gen/synthetic-0.csv"
+    ],
+    "fileHashes": {
+      "step-output/gen/synthetic-0.csv": "sha256:1c17ead205ba1c89b7943cc3e14ae4c47d73681f294ed171f9d3cb6616127f90"
+    }
+  }
+}

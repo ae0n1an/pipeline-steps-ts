@@ -1,0 +1,22 @@
+{
+  "description": "Exercises the header field overriding a column's printed header text.",
+  "steps": [
+    {
+      "step": "steps/generate-synthetic-csv.ts",
+      "name": "gen",
+      "config": {
+        "files": [
+          {
+            "name": "export",
+            "rowCount": 5,
+            "seed": 3,
+            "columns": [
+              { "name": "id", "header": "ID Number", "type": "uuid" },
+              { "name": "email", "header": "Email Address", "type": "email" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

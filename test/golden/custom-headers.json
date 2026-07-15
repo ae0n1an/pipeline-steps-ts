@@ -1,0 +1,20 @@
+{
+  "gen": {
+    "ok": true,
+    "outputs": {
+      "totalFiles": 1,
+      "export_csvPath": "step-output/gen/synthetic-0.csv",
+      "export_fileName": "synthetic-0.csv",
+      "export_rowCount": 5,
+      "export_columnNames": "ID Number,Email Address",
+      "export_seed": 3,
+      "export_sizeBytes": 325
+    },
+    "artifacts": [
+      "step-output/gen/synthetic-0.csv"
+    ],
+    "fileHashes": {
+      "step-output/gen/synthetic-0.csv": "sha256:2157f05f698a560138f73087183061f3f9c09669dd4bbef9c713328173b74347"
+    }
+  }
+}

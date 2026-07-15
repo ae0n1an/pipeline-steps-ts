@@ -1,0 +1,31 @@
+{
+  "description": "Chains generate-synthetic-csv into verify-row-count to prove multi-step scenario composition and {{steps.X.outputs.Y}} interpolation.",
+  "steps": [
+    {
+      "step": "steps/generate-synthetic-csv.ts",
+      "name": "gen",
+      "config": {
+        "files": [
+          {
+            "name": "records",
+            "rowCount": 4,
+            "seed": 5,
+            "columns": [
+              { "name": "id", "type": "uuid" },
+              { "name": "status", "type": "enum", "values": ["ok", "pending"] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "step": "steps/verify-row-count.ts",
+      "name": "verify",
+      "config": {
+        "files": [
+          { "name": "records", "filePath": "{{steps.gen.outputs.records_csvPath}}", "minRows": 4, "maxRows": 4 }
+        ]
+      }
+    }
+  ]
+}
