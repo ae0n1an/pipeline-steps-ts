@@ -26,6 +26,9 @@ stages:
           - script: npm run typecheck
             displayName: 'Type-check steps (tsc --noEmit)'
 
+          - script: npm test
+            displayName: 'Run step unit tests'
+
           - script: npm run test:scenarios
             displayName: 'Run scenario regression tests'
 
