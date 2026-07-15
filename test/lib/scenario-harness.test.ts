@@ -10,6 +10,7 @@ import {
   readGolden,
   writeGolden,
 } from './scenario-harness';
+import { runScenario } from './scenario-harness';
 
 test('normalizeStepOutput rewrites absolute paths relative to the workspace root and hashes artifacts', () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-test-'));
@@ -115,5 +116,77 @@ test('readGolden returns undefined when the golden file does not exist', () => {
     assert.equal(readGolden(path.join(dir, 'nope.json')), undefined);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runScenario spawns the real runner CLI and captures each step's output.json", () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-exec-test-'));
+  try {
+    const scenario = {
+      steps: [
+        {
+          step: 'steps/generate-synthetic-csv.ts',
+          name: 'gen',
+          config: {
+            files: [{ name: 'f', rowCount: 2, seed: 1, columns: [{ name: 'id', type: 'uuid' }] }],
+          },
+        },
+      ],
+    };
+    const results = runScenario(scenario, workspaceDir) as Record<string, { ok: boolean; outputs: Record<string, unknown> }>;
+    assert.equal(results.gen.ok, true);
+    assert.equal(results.gen.outputs.f_rowCount, 2);
+  } finally {
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test('runScenario resolves {{steps.X.outputs.Y}} interpolation between chained steps', () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-exec-test-'));
+  try {
+    const scenario = {
+      steps: [
+        {
+          step: 'steps/generate-synthetic-csv.ts',
+          name: 'gen',
+          config: {
+            files: [{ name: 'f', rowCount: 3, seed: 1, columns: [{ name: 'id', type: 'uuid' }] }],
+          },
+        },
+        {
+          step: 'steps/verify-row-count.ts',
+          name: 'verify',
+          config: {
+            files: [{ name: 'f', filePath: '{{steps.gen.outputs.f_csvPath}}', minRows: 3, maxRows: 3 }],
+          },
+        },
+      ],
+    };
+    const results = runScenario(scenario, workspaceDir) as Record<string, { ok: boolean; outputs: Record<string, unknown> }>;
+    assert.equal(results.verify.ok, true);
+    assert.equal(results.verify.outputs.f_rowCount, 3);
+  } finally {
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test('runScenario throws with stdout/stderr context when a step exits non-zero', () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-exec-test-'));
+  try {
+    const scenario = {
+      steps: [
+        {
+          step: 'steps/generate-synthetic-csv.ts',
+          name: 'bad',
+          config: { files: [] },
+        },
+      ],
+    };
+    assert.throws(
+      () => runScenario(scenario, workspaceDir),
+      /Scenario step "bad".*exited with code/,
+    );
+  } finally {
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
   }
 });

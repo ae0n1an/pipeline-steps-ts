@@ -9,7 +9,57 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import type { StepOutputFile } from '../../runner/types';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+// ---------- Scenario execution -----------------------------------------------
+
+export interface ScenarioStep {
+  /** Path to the step module, relative to repo root, e.g. "steps/generate-synthetic-csv.ts". */
+  step: string;
+  /** The step's config — same shape as any configs/*.json file. */
+  config: unknown;
+  /** Output key prefix; matches the runner's --name. */
+  name: string;
+}
+
+export interface Scenario {
+  description?: string;
+  steps: ScenarioStep[];
+}
+
+export function runScenario(scenario: Scenario, workspaceDir: string): Record<string, unknown> {
+  const results: Record<string, unknown> = {};
+
+  for (const step of scenario.steps) {
+    const configPath = path.join(workspaceDir, `${step.name}.config.json`);
+    fs.writeFileSync(configPath, JSON.stringify(step.config));
+
+    const result = spawnSync(
+      'npx',
+      ['tsx', 'runner/run-step.ts', '--step', step.step, '--config', configPath, '--name', step.name],
+      {
+        cwd: REPO_ROOT,
+        env: { ...process.env, PIPELINE_WORKSPACE: workspaceDir },
+        encoding: 'utf8',
+      },
+    );
+
+    if (result.status !== 0) {
+      throw new Error(
+        `Scenario step "${step.name}" (${step.step}) exited with code ${result.status}:\n${result.stdout}\n${result.stderr}`,
+      );
+    }
+
+    const outputPath = path.join(workspaceDir, 'step-output', step.name, 'output.json');
+    results[step.name] = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+  }
+
+  return results;
+}
 
 // ---------- Normalization ---------------------------------------------------
 
