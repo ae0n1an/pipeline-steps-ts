@@ -143,3 +143,49 @@ export function writeGolden(goldenPath: string, result: NormalizedScenarioResult
   fs.mkdirSync(path.dirname(goldenPath), { recursive: true });
   fs.writeFileSync(goldenPath, JSON.stringify(result, null, 2) + '\n', 'utf8');
 }
+
+// ---------- Discovery + orchestration ----------------------------------------
+
+export function discoverScenarioFiles(scenariosDir: string): string[] {
+  if (!fs.existsSync(scenariosDir)) return [];
+  return fs.readdirSync(scenariosDir).filter(f => f.endsWith('.json')).sort();
+}
+
+export interface ScenarioTestOutcome {
+  status: 'passed' | 'updated' | 'failed';
+  message?: string;
+}
+
+export function runScenarioAndCompare(
+  scenario: Scenario,
+  workspaceDir: string,
+  goldenPath: string,
+  updateGoldens: boolean,
+): ScenarioTestOutcome {
+  const rawResults = runScenario(scenario, workspaceDir);
+  const normalized: NormalizedScenarioResult = {};
+  for (const [name, raw] of Object.entries(rawResults)) {
+    normalized[name] = normalizeStepOutput(raw as StepOutputFile, workspaceDir);
+  }
+
+  if (updateGoldens) {
+    writeGolden(goldenPath, normalized);
+    return { status: 'updated', message: `golden written to ${goldenPath}` };
+  }
+
+  const golden = readGolden(goldenPath);
+  if (!golden) {
+    return {
+      status: 'failed',
+      message:
+        `No golden file at ${goldenPath}. Run "UPDATE_GOLDENS=1 npm run test:scenarios" to create it, ` +
+        'then review the diff before committing.',
+    };
+  }
+
+  const diffs = diffNormalized(normalized, golden);
+  if (diffs.length > 0) {
+    return { status: 'failed', message: diffs.join('\n') };
+  }
+  return { status: 'passed' };
+}

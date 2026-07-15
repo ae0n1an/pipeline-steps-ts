@@ -11,6 +11,7 @@ import {
   writeGolden,
 } from './scenario-harness';
 import { runScenario } from './scenario-harness';
+import { discoverScenarioFiles, runScenarioAndCompare } from './scenario-harness';
 
 test('normalizeStepOutput rewrites absolute paths relative to the workspace root and hashes artifacts', () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-test-'));
@@ -188,5 +189,96 @@ test('runScenario throws with stdout/stderr context when a step exits non-zero',
     );
   } finally {
     fs.rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test('discoverScenarioFiles lists only .json files, sorted, and returns empty for a missing directory', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-discover-test-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'b.json'), '{}');
+    fs.writeFileSync(path.join(dir, 'a.json'), '{}');
+    fs.writeFileSync(path.join(dir, 'readme.md'), '');
+    assert.deepEqual(discoverScenarioFiles(dir), ['a.json', 'b.json']);
+    assert.deepEqual(discoverScenarioFiles(path.join(dir, 'missing')), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runScenarioAndCompare fails with a clear message when no golden exists yet', () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-compare-test-'));
+  const goldenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-golden-test-'));
+  try {
+    const scenario = {
+      steps: [{
+        step: 'steps/generate-synthetic-csv.ts',
+        name: 'gen',
+        config: { files: [{ name: 'f', rowCount: 1, seed: 1, columns: [{ name: 'id', type: 'uuid' }] }] },
+      }],
+    };
+    const outcome = runScenarioAndCompare(scenario, workspaceDir, path.join(goldenDir, 'missing.json'), false);
+    assert.equal(outcome.status, 'failed');
+    assert.match(outcome.message ?? '', /No golden file/);
+  } finally {
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    fs.rmSync(goldenDir, { recursive: true, force: true });
+  }
+});
+
+test('runScenarioAndCompare passes once a golden has been written and the scenario is unchanged', () => {
+  const goldenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-golden-test-'));
+  try {
+    const scenario = {
+      steps: [{
+        step: 'steps/generate-synthetic-csv.ts',
+        name: 'gen',
+        config: { files: [{ name: 'f', rowCount: 1, seed: 1, columns: [{ name: 'id', type: 'uuid' }] }] },
+      }],
+    };
+    const goldenPath = path.join(goldenDir, 'scenario.json');
+
+    const workspace1 = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-compare-test-'));
+    const updateOutcome = runScenarioAndCompare(scenario, workspace1, goldenPath, true);
+    assert.equal(updateOutcome.status, 'updated');
+    fs.rmSync(workspace1, { recursive: true, force: true });
+
+    const workspace2 = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-compare-test-'));
+    const passOutcome = runScenarioAndCompare(scenario, workspace2, goldenPath, false);
+    assert.equal(passOutcome.status, 'passed');
+    fs.rmSync(workspace2, { recursive: true, force: true });
+  } finally {
+    fs.rmSync(goldenDir, { recursive: true, force: true });
+  }
+});
+
+test('runScenarioAndCompare fails and reports a diff when the scenario output changed', () => {
+  const goldenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-golden-test-'));
+  try {
+    const goldenPath = path.join(goldenDir, 'scenario.json');
+    const scenarioV1 = {
+      steps: [{
+        step: 'steps/generate-synthetic-csv.ts',
+        name: 'gen',
+        config: { files: [{ name: 'f', rowCount: 1, seed: 1, columns: [{ name: 'id', type: 'uuid' }] }] },
+      }],
+    };
+    const workspace1 = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-compare-test-'));
+    runScenarioAndCompare(scenarioV1, workspace1, goldenPath, true);
+    fs.rmSync(workspace1, { recursive: true, force: true });
+
+    const scenarioV2 = {
+      steps: [{
+        step: 'steps/generate-synthetic-csv.ts',
+        name: 'gen',
+        config: { files: [{ name: 'f', rowCount: 2, seed: 1, columns: [{ name: 'id', type: 'uuid' }] }] },
+      }],
+    };
+    const workspace2 = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-compare-test-'));
+    const outcome = runScenarioAndCompare(scenarioV2, workspace2, goldenPath, false);
+    assert.equal(outcome.status, 'failed');
+    assert.match(outcome.message ?? '', /"gen"/);
+    fs.rmSync(workspace2, { recursive: true, force: true });
+  } finally {
+    fs.rmSync(goldenDir, { recursive: true, force: true });
   }
 });
