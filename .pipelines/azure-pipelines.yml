@@ -108,6 +108,17 @@ stages:
             env:
               ADF_ACCESS_TOKEN: $(adfAccessToken)
 
+          # ---- Step: extract detailed ADF run and activity reporting ---
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/extract-adf-run-details.ts
+              --config configs/extract-adf-run-details.json
+              --name extractAdfDetails
+            name: extractAdfDetails
+            displayName: 'Extract ADF run and activity details'
+            env:
+              ADF_ACCESS_TOKEN: $(adfAccessToken)
+
           - task: PublishPipelineArtifact@1
             displayName: 'Publish step outputs'
             inputs:

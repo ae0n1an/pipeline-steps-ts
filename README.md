@@ -17,6 +17,7 @@ steps/
   generate-synthetic-csv.ts   # mock CSV from typed column configs
   gpg-encrypt-file.ts         # GPG-encrypt with a key from Azure Key Vault
   trigger-adf-pipeline.ts     # trigger + poll ADF pipeline run(s) in parallel
+  extract-adf-run-details.ts  # extract ADF pipeline + activity run detail, recursing into nested pipeline calls
   remove-blob-files.ts        # delete blobs matching a glob path pattern
   upload-to-blob.ts           # upload local file(s) to blob storage
   verify-and-download-blob.ts # verify expected blob(s) exist and download them
@@ -27,6 +28,7 @@ configs/
   generate-users-csv.json
   gpg-encrypt-users-csv.json
   trigger-adf-pipelines.json
+  extract-adf-run-details.json
   remove-blob-files.json
   upload-to-blob.json
   verify-and-download-blob.json
@@ -93,6 +95,16 @@ npx tsx runner/run-step.ts \
   --step steps/trigger-adf-pipeline.ts \
   --config configs/trigger-adf-pipelines.json \
   --name triggerAdf
+```
+
+Extract ADF run details (needs the same `ADF_ACCESS_TOKEN` as
+`trigger-adf-pipeline`; run IDs typically come from that step's outputs):
+
+```bash
+npx tsx runner/run-step.ts \
+  --step steps/extract-adf-run-details.ts \
+  --config configs/extract-adf-run-details.json \
+  --name extractAdfDetails
 ```
 
 Blob storage steps (need `DefaultAzureCredential` to resolve — e.g.
