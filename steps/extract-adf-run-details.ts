@@ -109,3 +109,138 @@ export function deriveActivityWindow(pipelineRun: { runStart: string; runEnd?: s
     lastUpdatedBefore: new Date(end).toISOString(),
   };
 }
+
+// ---------- Network layer (dependency-injected for testing) -------------------
+
+export interface FetchLike {
+  (
+    url: string,
+    init?: { method?: string; headers?: Record<string, string>; body?: string },
+  ): Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }>;
+}
+
+interface RawPipelineRun {
+  runId: string;
+  pipelineName: string;
+  status: string;
+  runStart: string;
+  runEnd?: string;
+  durationInMs?: number;
+}
+
+interface RawActivityRun {
+  activityRunId: string;
+  activityName: string;
+  activityType: string;
+  status: string;
+  activityRunStart: string;
+  durationInMs?: number;
+  output?: unknown;
+}
+
+export async function getPipelineRun(
+  target: AdfTarget,
+  runId: string,
+  accessToken: string,
+  fetchImpl: FetchLike,
+): Promise<RawPipelineRun> {
+  const res = await fetchImpl(buildPipelineRunUrl(target, runId), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Get pipeline run failed for "${runId}" (HTTP ${res.status}): ${body}`);
+  }
+  return res.json();
+}
+
+export async function queryActivityRuns(
+  target: AdfTarget,
+  runId: string,
+  accessToken: string,
+  window: { lastUpdatedAfter: string; lastUpdatedBefore: string },
+  fetchImpl: FetchLike,
+): Promise<RawActivityRun[]> {
+  const results: RawActivityRun[] = [];
+  let continuationToken: string | undefined;
+
+  do {
+    const res = await fetchImpl(buildQueryActivityRunsUrl(target, runId), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...window, continuationToken }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Query activity runs failed for "${runId}" (HTTP ${res.status}): ${body}`);
+    }
+    const data = await res.json();
+    results.push(...(data.value ?? []));
+    continuationToken = data.continuationToken;
+  } while (continuationToken);
+
+  return results;
+}
+
+// ---------- Recursive extraction ------------------------------------------------
+
+export interface ExtractionResult {
+  pipelineRuns: PipelineRunDetail[];
+  activities: ActivityDetail[];
+}
+
+export async function extractPipelineRunRecursive(
+  target: AdfTarget,
+  runId: string,
+  parentRunId: string | null,
+  accessToken: string,
+  fetchImpl: FetchLike,
+  maxDepth: number,
+  depth: number,
+): Promise<ExtractionResult> {
+  const rawRun = await getPipelineRun(target, runId, accessToken, fetchImpl);
+
+  const runDetail: PipelineRunDetail = {
+    runId: rawRun.runId,
+    parentRunId,
+    pipelineName: rawRun.pipelineName,
+    status: rawRun.status,
+    runStart: rawRun.runStart,
+    runEnd: rawRun.runEnd,
+    durationMs: rawRun.durationInMs,
+  };
+
+  const window = deriveActivityWindow(rawRun);
+  const rawActivities = await queryActivityRuns(target, runId, accessToken, window, fetchImpl);
+
+  const activities: ActivityDetail[] = rawActivities.map(a => ({
+    pipelineRunId: runId,
+    activityId: a.activityRunId,
+    activityName: a.activityName,
+    activityType: a.activityType,
+    status: a.status,
+    activityRunStart: a.activityRunStart,
+    durationMs: a.durationInMs,
+  }));
+
+  const childRunIds = rawActivities
+    .filter(a => a.activityType === 'ExecutePipeline')
+    .map(a => (a.output as { pipelineRunId?: string } | undefined)?.pipelineRunId)
+    .filter((id): id is string => Boolean(id));
+
+  if (childRunIds.length > 0 && depth >= maxDepth) {
+    runDetail.truncated = true;
+    return { pipelineRuns: [runDetail], activities };
+  }
+
+  const childResults = await Promise.all(
+    childRunIds.map(childRunId =>
+      extractPipelineRunRecursive(target, childRunId, runId, accessToken, fetchImpl, maxDepth, depth + 1),
+    ),
+  );
+
+  const pipelineRuns = [runDetail, ...childResults.flatMap(r => r.pipelineRuns)];
+  const allActivities = [...activities, ...childResults.flatMap(r => r.activities)];
+
+  return { pipelineRuns, activities: allActivities };
+}
