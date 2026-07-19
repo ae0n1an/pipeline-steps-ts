@@ -244,3 +244,99 @@ export async function extractPipelineRunRecursive(
 
   return { pipelineRuns, activities: allActivities };
 }
+
+// ---------- Orchestration ----------------------------------------------------
+
+interface EntryResult {
+  name: string;
+  runId: string;
+  status: 'Succeeded' | 'Failed';
+  durationMs?: number;
+  message?: string;
+  pipelineRuns: PipelineRunDetail[];
+  activities: ActivityDetail[];
+}
+
+async function runOneEntry(
+  entry: AdfRunEntry,
+  index: number,
+  config: ExtractAdfRunDetailsConfig,
+  fetchImpl: FetchLike,
+  ctx: StepContext,
+): Promise<EntryResult> {
+  const name = entry.name ?? `f${index}`;
+  try {
+    const target = resolveTarget(entry, config);
+    const maxDepth = Number(config.maxDepth ?? 5);
+    const result = await extractPipelineRunRecursive(target, entry.runId, null, config.accessToken, fetchImpl, maxDepth, 0);
+    const topRun = result.pipelineRuns.find(r => r.runId === entry.runId);
+    ctx.log(
+      `Extracted run "${entry.runId}" (${name}): ${result.pipelineRuns.length} pipeline run(s), ${result.activities.length} activit(y/ies)`,
+    );
+    return {
+      name,
+      runId: entry.runId,
+      status: 'Succeeded',
+      durationMs: topRun?.durationMs,
+      pipelineRuns: result.pipelineRuns,
+      activities: result.activities,
+    };
+  } catch (err) {
+    return {
+      name,
+      runId: entry.runId,
+      status: 'Failed',
+      message: (err as Error).message,
+      pipelineRuns: [],
+      activities: [],
+    };
+  }
+}
+
+export async function runAll(
+  config: ExtractAdfRunDetailsConfig,
+  ctx: StepContext,
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+): Promise<StepResult> {
+  if (!config.accessToken) throw new Error('config.accessToken is required');
+  if (!config.runs || config.runs.length === 0) {
+    throw new Error('config.runs must contain at least one run');
+  }
+
+  const results = await Promise.all(
+    config.runs.map((entry, index) => runOneEntry(entry, index, config, fetchImpl, ctx)),
+  );
+
+  const allPipelineRuns = results.flatMap(r => r.pipelineRuns);
+  const allActivities = results.flatMap(r => r.activities);
+
+  const summaryPath = path.join(ctx.outDir, 'adf-run-details.json');
+  fs.writeFileSync(
+    summaryPath,
+    JSON.stringify({ pipelineRuns: allPipelineRuns, activities: allActivities }, null, 2),
+  );
+
+  const failed = results.filter(r => r.status !== 'Succeeded');
+  const outputs: Record<string, string | number | boolean> = {
+    totalRuns: results.length,
+    succeededCount: results.length - failed.length,
+    failedCount: failed.length,
+  };
+  for (const r of results) {
+    outputs[`${r.name}_status`] = r.status;
+    if (r.durationMs !== undefined) outputs[`${r.name}_durationMs`] = r.durationMs;
+  }
+
+  if (failed.length > 0) {
+    const detail = failed
+      .map(r => `  - ${r.name} (${r.runId}): ${r.status}${r.message ? ` — ${r.message}` : ''}`)
+      .join('\n');
+    throw new Error(`${failed.length}/${results.length} ADF run(s) failed to extract:\n${detail}`);
+  }
+
+  return { outputs, artifacts: [summaryPath] };
+}
+
+export default defineStep<ExtractAdfRunDetailsConfig>({
+  run: (config, ctx) => runAll(config, ctx),
+});

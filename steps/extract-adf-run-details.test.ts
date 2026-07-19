@@ -192,3 +192,96 @@ test('extractPipelineRunRecursive does not mark truncated when maxDepth is reach
   const result = await extractPipelineRunRecursive(TARGET, 'run-1', null, 'token', fetchImpl, 0, 0);
   assert.equal(result.pipelineRuns[0].truncated, undefined);
 });
+
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { runAll } from './extract-adf-run-details';
+import type { StepContext } from '../runner/types';
+
+function fakeCtx(outDir: string): StepContext {
+  return { stepName: 'test', outDir, workspace: outDir, steps: {}, log: () => {}, warn: () => {} };
+}
+
+function fakeFetchForRun(runId: string, pipelineName: string): FetchLike {
+  return async (url) => {
+    if (url.includes('queryActivityruns')) {
+      return { ok: true, status: 200, json: async () => ({ value: [{ activityRunId: `${runId}-a1`, activityName: 'Copy1', activityType: 'Copy', status: 'Succeeded', activityRunStart: 't1' }] }), text: async () => '' };
+    }
+    return { ok: true, status: 200, json: async () => ({ runId, pipelineName, status: 'Succeeded', runStart: '2026-01-01T00:00:00.000Z', runEnd: '2026-01-01T00:05:00.000Z', durationInMs: 300000 }), text: async () => '' };
+  };
+}
+
+test('runAll extracts a single run end-to-end and writes adf-run-details.json', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adfdetails-test-'));
+  try {
+    const config = {
+      accessToken: 't',
+      subscriptionId: 'sub1',
+      resourceGroup: 'rg1',
+      factoryName: 'f1',
+      runs: [{ name: 'copyOrders', runId: 'run-1' }],
+    };
+    const result = await runAll(config, fakeCtx(outDir), fakeFetchForRun('run-1', 'CopyOrders'));
+    assert.equal(result.outputs?.totalRuns, 1);
+    assert.equal(result.outputs?.copyOrders_status, 'Succeeded');
+    assert.equal(result.outputs?.copyOrders_durationMs, 300000);
+    const summary = JSON.parse(fs.readFileSync(path.join(outDir, 'adf-run-details.json'), 'utf8'));
+    assert.equal(summary.pipelineRuns.length, 1);
+    assert.equal(summary.activities.length, 1);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll processes multiple runs concurrently; one failure does not block a sibling', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adfdetails-test-'));
+  try {
+    const fetchImpl: FetchLike = async (url) => {
+      if (url.includes('run-bad')) {
+        return { ok: false, status: 404, json: async () => ({}), text: async () => 'Not Found' };
+      }
+      return fakeFetchForRun('run-good', 'GoodPipeline')(url);
+    };
+    const config = {
+      accessToken: 't',
+      subscriptionId: 'sub1',
+      resourceGroup: 'rg1',
+      factoryName: 'f1',
+      runs: [
+        { name: 'good', runId: 'run-good' },
+        { name: 'bad', runId: 'run-bad' },
+      ],
+    };
+    await assert.rejects(
+      () => runAll(config, fakeCtx(outDir), fetchImpl),
+      /1\/2 ADF run\(s\) failed to extract[\s\S]*bad[\s\S]*Failed/,
+    );
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll throws when config.accessToken is missing', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adfdetails-test-'));
+  try {
+    await assert.rejects(
+      () => runAll({ accessToken: '', runs: [{ runId: 'r1' }] } as any, fakeCtx(outDir), fakeFetchForRun('r1', 'X')),
+      /accessToken is required/,
+    );
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll throws when config.runs is empty', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adfdetails-test-'));
+  try {
+    await assert.rejects(
+      () => runAll({ accessToken: 't', runs: [] }, fakeCtx(outDir), fakeFetchForRun('r1', 'X')),
+      /config\.runs must contain at least one run/,
+    );
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
