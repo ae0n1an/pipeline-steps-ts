@@ -49,7 +49,6 @@ async function fetchKeyFromVault(keyVaultUrl: string, secretName: string, ctx: S
   ctx.log(`Fetching secret "${secretName}" from ${keyVaultUrl} via SDK`);
   // Imported via variable specifiers so tsc doesn't require these optional
   // deps to be installed; they're only needed if this route is used.
-  /* eslint-disable @typescript-eslint/no-explicit-any */
   let identity: any;
   let secrets: any;
   try {

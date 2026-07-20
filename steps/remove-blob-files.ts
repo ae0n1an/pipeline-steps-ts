@@ -78,7 +78,7 @@ async function runOnePattern(
   ctx: StepContext,
 ): Promise<PatternResult> {
   const name = entry.name ?? `f${index}`;
-  let matches: string[] = [];
+  const matches: string[] = [];
   try {
     const target = resolveBlobTarget(entry, config);
     const client = clientFactory(target.accountUrl);

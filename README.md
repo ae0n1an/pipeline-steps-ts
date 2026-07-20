@@ -283,6 +283,38 @@ the existing files for the `{ description?, steps: [{ step, config, name
 }] }` shape) and running `UPDATE_GOLDENS=1 npm run test:scenarios` once to
 create its golden.
 
+## Reusing CI steps across repos
+
+Azure Pipelines has no concept of "this pipeline also gates other repos" —
+each repo's own `azure-pipelines.yml` has to explicitly opt in. This repo
+publishes one reusable step template, `.pipelines/templates/lint-steps.yml`
+(installs Node, runs `npm run lint`), that another repo can pull in:
+
+```yaml
+# In the consuming repo's azure-pipelines.yml
+resources:
+  repositories:
+    - repository: pipelineStepsTs
+      type: github        # 'git' instead if this repo lives in Azure Repos
+      name: ae0n1an/pipeline-steps-ts
+      endpoint: <github-service-connection-name>
+
+steps:
+  - template: .pipelines/templates/lint-steps.yml@pipelineStepsTs
+    parameters:
+      nodeVersion: '20.x'
+```
+
+The template only standardizes *how* lint runs (install deps, run `npm run
+lint`) — the consuming repo still needs its own ESLint config and `lint`
+script; this doesn't ship or force this repo's own rules onto it. Pulling
+in the template doesn't gate anything by itself: the consuming repo also
+needs a `pr:` trigger in its own pipeline (see `.pipelines/azure-pipelines.yml`'s
+`pr:` block in this repo for reference) and a Build Validation branch
+policy (Azure Repos) or a required status check (GitHub) pointing at the
+pipeline that includes this template — a one-time setting made in that
+repo, not expressible in YAML.
+
 ## Prior art
 
 If you need org-wide reusable tasks with a UI in the pipeline editor, the

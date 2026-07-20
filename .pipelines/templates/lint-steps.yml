@@ -1,0 +1,50 @@
+# Reusable step template: installs Node dependencies and runs `npm run
+# lint` in the consuming repo's own checkout. This does NOT ship or assume
+# this repo's own eslint.config.js — the consuming repo needs its own
+# ESLint setup and its own `lint` script in package.json. This template
+# only standardizes "how the lint step runs in CI," not the rules
+# themselves.
+#
+# Reference from another repo's pipeline like this:
+#
+#   resources:
+#     repositories:
+#       - repository: pipelineStepsTs
+#         type: github            # 'git' instead if pipelineStepsTs also
+#         name: ae0n1an/pipeline-steps-ts   # lives in Azure Repos
+#         endpoint: <github-service-connection-name>
+#
+#   steps:
+#     - template: .pipelines/templates/lint-steps.yml@pipelineStepsTs
+#       parameters:
+#         nodeVersion: '20.x'
+#
+# See this repo's README ("Reusing CI steps across repos") for the full
+# walkthrough, including the branch-policy step that actually makes this a
+# required PR check in the consuming repo.
+
+parameters:
+  - name: nodeVersion
+    type: string
+    default: '20.x'
+  - name: workingDirectory
+    type: string
+    default: '$(Build.SourcesDirectory)'
+  - name: failOnLintError
+    type: boolean
+    default: true
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: ${{ parameters.nodeVersion }}
+
+  - script: npm ci
+    displayName: 'Install dependencies'
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+  - script: npm run lint
+    displayName: 'Lint (eslint)'
+    workingDirectory: ${{ parameters.workingDirectory }}
+    ${{ if eq(parameters.failOnLintError, false) }}:
+      continueOnError: true
