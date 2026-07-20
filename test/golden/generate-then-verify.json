@@ -1,0 +1,30 @@
+{
+  "gen": {
+    "ok": true,
+    "outputs": {
+      "totalFiles": 1,
+      "records_csvPath": "step-output/gen/synthetic-0.csv",
+      "records_fileName": "synthetic-0.csv",
+      "records_rowCount": 4,
+      "records_columnNames": "id,status",
+      "records_seed": 5,
+      "records_sizeBytes": 180
+    },
+    "artifacts": [
+      "step-output/gen/synthetic-0.csv"
+    ],
+    "fileHashes": {
+      "step-output/gen/synthetic-0.csv": "sha256:a4483fc0be3abe33081984f5f0dcebd9e9496c11f1ea9fcefceeedcc5ea0b486"
+    }
+  },
+  "verify": {
+    "ok": true,
+    "outputs": {
+      "totalFiles": 1,
+      "records_rowCount": 4,
+      "records_status": "Succeeded"
+    },
+    "artifacts": [],
+    "fileHashes": {}
+  }
+}

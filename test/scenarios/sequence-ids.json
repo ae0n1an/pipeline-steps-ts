@@ -1,0 +1,22 @@
+{
+  "description": "Exercises the sequence column type.",
+  "steps": [
+    {
+      "step": "steps/generate-synthetic-csv.ts",
+      "name": "gen",
+      "config": {
+        "files": [
+          {
+            "name": "employees",
+            "rowCount": 5,
+            "seed": 1,
+            "columns": [
+              { "name": "employeeNumber", "type": "sequence", "start": 900000, "step": 1, "max": 1000000 },
+              { "name": "fullName", "type": "fullName" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

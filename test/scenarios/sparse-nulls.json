@@ -1,0 +1,24 @@
+{
+  "description": "Heavy nullProbability across multiple column types.",
+  "steps": [
+    {
+      "step": "steps/generate-synthetic-csv.ts",
+      "name": "gen",
+      "config": {
+        "files": [
+          {
+            "name": "sparse",
+            "rowCount": 20,
+            "seed": 7,
+            "columns": [
+              { "name": "id", "type": "uuid" },
+              { "name": "nickname", "type": "firstName", "nullProbability": 0.6 },
+              { "name": "score", "type": "int", "min": 0, "max": 100, "nullProbability": 0.4 },
+              { "name": "active", "type": "bool", "nullProbability": 0.3 }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

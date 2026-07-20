@@ -12,5 +12,5 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["runner/**/*.ts", "steps/**/*.ts"]
+  "include": ["runner/**/*.ts", "steps/**/*.ts", "test/**/*.ts"]
 }

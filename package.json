@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "step": "tsx runner/run-step.ts",
-    "test": "tsx --test \"steps/**/*.test.ts\""
+    "test": "tsx --test \"steps/**/*.test.ts\"",
+    "test:scenarios": "tsx --test \"test/**/*.test.ts\""
   },
   "keywords": [],
   "author": "",

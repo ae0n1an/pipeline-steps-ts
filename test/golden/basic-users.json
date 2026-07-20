@@ -1,0 +1,20 @@
+{
+  "gen": {
+    "ok": true,
+    "outputs": {
+      "totalFiles": 1,
+      "users_csvPath": "step-output/gen/users.csv",
+      "users_fileName": "users.csv",
+      "users_rowCount": 10,
+      "users_columnNames": "id,firstName,lastName,email,age",
+      "users_seed": 42,
+      "users_sizeBytes": 792
+    },
+    "artifacts": [
+      "step-output/gen/users.csv"
+    ],
+    "fileHashes": {
+      "step-output/gen/users.csv": "sha256:1e966c28ae0d365e55be9ac2a6c7bead982668c225faa0addb33c950d82b3568"
+    }
+  }
+}
