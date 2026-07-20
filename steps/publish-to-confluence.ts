@@ -13,6 +13,11 @@
  * consolidate-run-results' output shape rather than importing from that
  * step's module — steps in this repo communicate via files on disk and
  * interpolated config strings, never by importing each other's TS.
+ *
+ * Rendering has two modes: the default generic "Step Results" table (one
+ * row per step, flattened outputs) used when config.sections is omitted,
+ * and a declarative custom layout (config.sections) that replaces it —
+ * see renderConfluenceStorageFormat below.
  */
 
 import * as fs from 'node:fs';
@@ -20,6 +25,20 @@ import * as path from 'node:path';
 import { defineStep, type StepContext, type StepResult } from '../runner/types';
 
 // ---------- Config types ----------------------------------------------------
+
+export interface ReportSection {
+  title: string;
+  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. */
+  dataFrom: string;
+  /** Which part of that step's entry to read. Default 'outputs'. */
+  source?: 'outputs' | 'data';
+  /** Dot-path within the selected source to the array or object to render. Omit to use the whole source value as-is. */
+  arrayPath?: string;
+  /** Default 'keyvalue'. */
+  layout?: 'table' | 'bullets' | 'keyvalue';
+  /** Dot-paths (per item) to extract, with display labels. Omit to use every own-enumerable key. */
+  fields?: { label: string; field: string }[];
+}
 
 export interface PublishToConfluenceConfig {
   /** e.g. "https://yoursite.atlassian.net/wiki" */
@@ -32,12 +51,15 @@ export interface PublishToConfluenceConfig {
   parentPageId?: string;
   /** Path to the JSON artifact produced by consolidate-run-results. */
   resultsPath: string;
+  /** Optional custom report layout. Omitted/empty = today's exact behavior. */
+  sections?: ReportSection[];
 }
 
 export interface ConsolidatedStepEntry {
   stepName: string;
   ok: boolean;
   outputs: Record<string, unknown>;
+  data?: unknown;
   error?: string;
 }
 
@@ -63,12 +85,135 @@ export function escapeXhtml(value: unknown): string {
     .replace(/"/g, '&quot;');
 }
 
+// ---------- Field path resolution --------------------------------------------
+
+export function resolveFieldPath(obj: unknown, fieldPath: string): unknown {
+  let cur: unknown = obj;
+  for (const part of fieldPath.split('.')) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// ---------- Nested cell rendering (object/array values inside a cell) --------
+
+function renderNestedValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `<ul>${value.map(item => `<li>${renderNestedValue(item)}</li>`).join('')}</ul>`;
+  }
+  if (isPlainObject(value)) {
+    return `<ul>${Object.entries(value).map(([k, v]) => `<li>${escapeXhtml(k)}: ${renderNestedValue(v)}</li>`).join('')}</ul>`;
+  }
+  return escapeXhtml(value);
+}
+
+function renderCell(value: unknown): string {
+  if (Array.isArray(value) || isPlainObject(value)) return renderNestedValue(value);
+  return escapeXhtml(value);
+}
+
+// ---------- Section layout renderers -----------------------------------------
+
+function fieldEntries(
+  item: unknown,
+  fields: { label: string; field: string }[] | undefined,
+): Array<readonly [string, unknown]> {
+  if (fields) return fields.map(f => [f.label, resolveFieldPath(item, f.field)] as const);
+  if (isPlainObject(item)) return Object.entries(item);
+  return [];
+}
+
+function renderTableSection(section: ReportSection, data: unknown): string {
+  if (!Array.isArray(data)) {
+    throw new Error(`section "${section.title}": table layout requires array data at "${section.arrayPath ?? '(root)'}"`);
+  }
+  const fields = section.fields
+    ?? (data.length > 0 && isPlainObject(data[0]) ? Object.keys(data[0] as object).map(k => ({ label: k, field: k })) : []);
+  const headerRow = `<tr>${fields.map(f => `<th>${escapeXhtml(f.label)}</th>`).join('')}</tr>`;
+  const bodyRows = data
+    .map(item => `<tr>${fields.map(f => `<td>${renderCell(resolveFieldPath(item, f.field))}</td>`).join('')}</tr>`)
+    .join('');
+  return `<table><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>`;
+}
+
+function renderBulletsSection(section: ReportSection, data: unknown): string {
+  if (Array.isArray(data)) {
+    return data
+      .map((item, i) => {
+        const lines = fieldEntries(item, section.fields)
+          .map(([label, v]) => `<li>${escapeXhtml(label)}: ${renderCell(v)}</li>`)
+          .join('');
+        return `<p><strong>Item ${i + 1}</strong></p><ul>${lines}</ul>`;
+      })
+      .join('');
+  }
+  if (isPlainObject(data)) {
+    const lines = fieldEntries(data, section.fields)
+      .map(([label, v]) => `<li>${escapeXhtml(label)}: ${renderCell(v)}</li>`)
+      .join('');
+    return `<ul>${lines}</ul>`;
+  }
+  throw new Error(`section "${section.title}": bullets layout requires array or object data`);
+}
+
+function renderKeyvalueSection(section: ReportSection, data: unknown): string {
+  if (Array.isArray(data)) {
+    throw new Error(`section "${section.title}": keyvalue layout requires object data, got an array — did you mean layout: "bullets"?`);
+  }
+  if (!isPlainObject(data)) {
+    throw new Error(`section "${section.title}": keyvalue layout requires object data`);
+  }
+  const rows = fieldEntries(data, section.fields)
+    .map(([label, v]) => `<tr><th>${escapeXhtml(label)}</th><td>${renderCell(v)}</td></tr>`)
+    .join('');
+  return `<table><tbody>${rows}</tbody></table>`;
+}
+
+function renderSection(section: ReportSection, result: ConsolidatedResult): string {
+  const stepEntry = result.steps.find(s => s.stepName === section.dataFrom);
+  if (!stepEntry) {
+    throw new Error(`section "${section.title}": no step named "${section.dataFrom}" in the results`);
+  }
+  const source = section.source ?? 'outputs';
+  const sourceValue = source === 'data' ? stepEntry.data : stepEntry.outputs;
+  if (source === 'data' && sourceValue === undefined) {
+    throw new Error(`section "${section.title}": step "${section.dataFrom}" has no embedded "data" (configure embedArtifacts in consolidate-run-results)`);
+  }
+  const data = section.arrayPath ? resolveFieldPath(sourceValue, section.arrayPath) : sourceValue;
+
+  const layout = section.layout ?? 'keyvalue';
+  const body = layout === 'table' ? renderTableSection(section, data)
+    : layout === 'bullets' ? renderBulletsSection(section, data)
+    : renderKeyvalueSection(section, data);
+
+  return `<h2>${escapeXhtml(section.title)}</h2>${body}`;
+}
+
 // ---------- Content rendering ------------------------------------------------
 
-export function renderConfluenceStorageFormat(result: ConsolidatedResult): string {
+export function renderConfluenceStorageFormat(result: ConsolidatedResult, sections?: ReportSection[]): string {
   const metadataRows = Object.entries(result.runMetadata)
     .map(([k, v]) => `<tr><th>${escapeXhtml(k)}</th><td>${escapeXhtml(v)}</td></tr>`)
     .join('');
+
+  const summaryTable = `<h2>Run Summary</h2>
+<table><tbody>
+${metadataRows}
+<tr><th>Generated At</th><td>${escapeXhtml(result.generatedAt)}</td></tr>
+<tr><th>Total Steps</th><td>${result.summary.totalSteps}</td></tr>
+<tr><th>Succeeded</th><td>${result.summary.succeededCount}</td></tr>
+<tr><th>Failed</th><td>${result.summary.failedCount}</td></tr>
+</tbody></table>`;
+
+  if (sections && sections.length > 0) {
+    const customSections = sections.map(section => renderSection(section, result)).join('\n');
+    return `${summaryTable}\n${customSections}`;
+  }
 
   const stepRows = result.steps
     .map(step => {
@@ -81,14 +226,7 @@ export function renderConfluenceStorageFormat(result: ConsolidatedResult): strin
     })
     .join('');
 
-  return `<h2>Run Summary</h2>
-<table><tbody>
-${metadataRows}
-<tr><th>Generated At</th><td>${escapeXhtml(result.generatedAt)}</td></tr>
-<tr><th>Total Steps</th><td>${result.summary.totalSteps}</td></tr>
-<tr><th>Succeeded</th><td>${result.summary.succeededCount}</td></tr>
-<tr><th>Failed</th><td>${result.summary.failedCount}</td></tr>
-</tbody></table>
+  return `${summaryTable}
 <h2>Step Results</h2>
 <table><thead><tr><th>Step</th><th>Status</th><th>Outputs</th></tr></thead><tbody>
 ${stepRows}
@@ -206,7 +344,7 @@ export async function runAll(
   }
   const result: ConsolidatedResult = JSON.parse(fs.readFileSync(config.resultsPath, 'utf8'));
 
-  const content = renderConfluenceStorageFormat(result);
+  const content = renderConfluenceStorageFormat(result, config.sections);
   const contentPath = path.join(ctx.outDir, 'confluence-page-content.html');
   fs.writeFileSync(contentPath, content);
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { escapeXhtml, renderConfluenceStorageFormat } from './publish-to-confluence';
+import { escapeXhtml, renderConfluenceStorageFormat, resolveFieldPath } from './publish-to-confluence';
 import { findExistingPage, createPage, updatePage, type FetchLike } from './publish-to-confluence';
 import { runAll } from './publish-to-confluence';
 import type { StepContext } from '../runner/types';
@@ -221,6 +221,181 @@ test('runAll throws when resultsPath does not exist', async () => {
       spaceKey: 'ENG', pageTitle: 'Status', resultsPath: path.join(outDir, 'missing.json'),
     };
     await assert.rejects(() => runAll(config, fakeCtx(outDir)), /Results file not found/);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('resolveFieldPath resolves a nested dot-path', () => {
+  assert.equal(resolveFieldPath({ a: { b: { c: 42 } } }, 'a.b.c'), 42);
+});
+
+test('resolveFieldPath returns undefined for a missing path segment', () => {
+  assert.equal(resolveFieldPath({ a: { b: 1 } }, 'a.x.y'), undefined);
+  assert.equal(resolveFieldPath(null, 'a.b'), undefined);
+});
+
+function resultWithStep(
+  stepName: string,
+  overrides: Partial<{ ok: boolean; outputs: Record<string, unknown>; data: unknown; error: string }> = {},
+) {
+  return {
+    runMetadata: {},
+    generatedAt: 't',
+    steps: [{
+      stepName,
+      ok: overrides.ok ?? true,
+      outputs: overrides.outputs ?? {},
+      data: overrides.data,
+      error: overrides.error,
+    }],
+    summary: { totalSteps: 1, succeededCount: 1, failedCount: 0 },
+  };
+}
+
+test('renderConfluenceStorageFormat renders a custom table section from embedded step data', () => {
+  const result = resultWithStep('extractAdfDetails', {
+    data: { pipelineRuns: [{ pipelineName: 'CopyOrders', runId: 'run-1', status: 'Succeeded', durationMs: 5000 }] },
+  });
+  const sections = [{
+    title: 'ADF Pipeline Runs',
+    dataFrom: 'extractAdfDetails',
+    source: 'data' as const,
+    arrayPath: 'pipelineRuns',
+    layout: 'table' as const,
+    fields: [
+      { label: 'Pipeline', field: 'pipelineName' },
+      { label: 'Run ID', field: 'runId' },
+      { label: 'Status', field: 'status' },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h2>ADF Pipeline Runs<\/h2>/);
+  assert.match(html, /<th>Pipeline<\/th>/);
+  assert.match(html, /<td>CopyOrders<\/td>/);
+  assert.match(html, /<td>run-1<\/td>/);
+  assert.match(html, /<td>Succeeded<\/td>/);
+  assert.doesNotMatch(html, /Step Results/);
+});
+
+test("renderConfluenceStorageFormat table layout falls back to the first item's own keys when fields is omitted", () => {
+  const result = resultWithStep('a', { data: [{ x: 1, y: 2 }, { x: 3, y: 4 }] });
+  const sections = [{ title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'table' as const }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<th>x<\/th><th>y<\/th>/);
+  assert.match(html, /<td>1<\/td><td>2<\/td>/);
+  assert.match(html, /<td>3<\/td><td>4<\/td>/);
+});
+
+test('renderConfluenceStorageFormat table layout throws when the resolved data is not an array', () => {
+  const result = resultWithStep('a', { data: { notAnArray: true } });
+  const sections = [{ title: 'Bad', dataFrom: 'a', source: 'data' as const, layout: 'table' as const }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /table layout requires array data/);
+});
+
+test('renderConfluenceStorageFormat renders nested bullets inside a table cell for an object field value', () => {
+  const result = resultWithStep('a', { data: [{ name: 'x', details: { foo: 1, bar: 2 } }] });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'table' as const,
+    fields: [{ label: 'Name', field: 'name' }, { label: 'Details', field: 'details' }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td><ul><li>foo: 1<\/li><li>bar: 2<\/li><\/ul><\/td>/);
+  assert.doesNotMatch(html, /\[object Object\]/);
+});
+
+test('renderConfluenceStorageFormat renders nested bullets inside a table cell for an array field value', () => {
+  const result = resultWithStep('a', { data: [{ name: 'x', tags: ['a', 'b'] }] });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'table' as const,
+    fields: [{ label: 'Name', field: 'name' }, { label: 'Tags', field: 'tags' }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td><ul><li>a<\/li><li>b<\/li><\/ul><\/td>/);
+});
+
+test('renderConfluenceStorageFormat bullets layout renders each array item under an "Item N" heading', () => {
+  const result = resultWithStep('a', { data: [{ x: 1 }, { x: 2 }] });
+  const sections = [{ title: 'B', dataFrom: 'a', source: 'data' as const, layout: 'bullets' as const }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<strong>Item 1<\/strong>/);
+  assert.match(html, /<strong>Item 2<\/strong>/);
+  assert.match(html, /<li>x: 1<\/li>/);
+  assert.match(html, /<li>x: 2<\/li>/);
+});
+
+test('renderConfluenceStorageFormat bullets layout renders a flat list for object data', () => {
+  const result = resultWithStep('a', { outputs: { foo: 'bar', count: 3 } });
+  const sections = [{ title: 'B', dataFrom: 'a', layout: 'bullets' as const }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<li>foo: bar<\/li>/);
+  assert.match(html, /<li>count: 3<\/li>/);
+  assert.doesNotMatch(html, /Item 1/);
+});
+
+test('renderConfluenceStorageFormat keyvalue layout renders a two-column table', () => {
+  const result = resultWithStep('a', { outputs: { foo: 'bar' } });
+  const sections = [{ title: 'K', dataFrom: 'a', layout: 'keyvalue' as const }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<th>foo<\/th><td>bar<\/td>/);
+});
+
+test('renderConfluenceStorageFormat keyvalue layout throws when data is an array', () => {
+  const result = resultWithStep('a', { data: [1, 2] });
+  const sections = [{ title: 'K', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /keyvalue layout requires object data[\s\S]*bullets/);
+});
+
+test("renderConfluenceStorageFormat throws when a section's dataFrom step is not present", () => {
+  const result = resultWithStep('a');
+  const sections = [{ title: 'X', dataFrom: 'missingStep' }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /no step named "missingStep"/);
+});
+
+test('renderConfluenceStorageFormat throws when source:"data" is requested but the step has no data', () => {
+  const result = resultWithStep('a');
+  const sections = [{ title: 'X', dataFrom: 'a', source: 'data' as const }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /has no embedded "data"/);
+});
+
+test('renderConfluenceStorageFormat falls back to the generic Step Results table when sections is an empty array', () => {
+  const result = resultWithStep('a', { outputs: { foo: 'bar' } });
+  const html = renderConfluenceStorageFormat(result, []);
+  assert.match(html, /Step Results/);
+});
+
+test('runAll renders custom sections end to end when config.sections is set', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'confluence-test-'));
+  try {
+    const filePath = path.join(outDir, 'run-results.json');
+    fs.writeFileSync(filePath, JSON.stringify({
+      runMetadata: {},
+      generatedAt: 't',
+      steps: [{
+        stepName: 'extractAdfDetails',
+        ok: true,
+        outputs: {},
+        data: { pipelineRuns: [{ pipelineName: 'CopyOrders', runId: 'run-1', status: 'Succeeded' }] },
+      }],
+      summary: { totalSteps: 1, succeededCount: 1, failedCount: 0 },
+    }));
+    const fetchImpl: FetchLike = async url => {
+      if (url.includes('spaceKey=')) return { ok: true, status: 200, json: async () => ({ results: [] }), text: async () => '' };
+      return { ok: true, status: 200, json: async () => ({ id: 'new-1', _links: { webui: '/x' } }), text: async () => '' };
+    };
+    const config = {
+      baseUrl: 'https://example.atlassian.net/wiki', email: 'e', apiToken: 't',
+      spaceKey: 'ENG', pageTitle: 'Status', resultsPath: filePath,
+      sections: [{
+        title: 'ADF Pipeline Runs', dataFrom: 'extractAdfDetails', source: 'data' as const,
+        arrayPath: 'pipelineRuns', layout: 'table' as const,
+        fields: [{ label: 'Pipeline', field: 'pipelineName' }, { label: 'Run ID', field: 'runId' }],
+      }],
+    };
+    await runAll(config, fakeCtx(outDir), fetchImpl);
+    const content = fs.readFileSync(path.join(outDir, 'confluence-page-content.html'), 'utf8');
+    assert.match(content, /<h2>ADF Pipeline Runs<\/h2>/);
+    assert.match(content, /<td>CopyOrders<\/td>/);
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }
