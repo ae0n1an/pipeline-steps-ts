@@ -5,6 +5,16 @@
 trigger:
   - main
 
+# Runs this same pipeline on every PR targeting main, as a required check —
+# note this means PR builds perform the same live side effects as a main
+# build (ADF pipeline triggers, blob uploads, Confluence page updates), not
+# just validation. Marking the pipeline as a required status check for the
+# main branch is a one-time setting in GitHub → Settings → Branches (or,
+# for repos backed by a real Azure DevOps project, in the pipeline's
+# "Branch Policies" for main) — not something expressible in this YAML.
+pr:
+  - main
+
 pool:
   vmImage: ubuntu-latest
 
