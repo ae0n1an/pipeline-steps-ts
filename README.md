@@ -25,6 +25,7 @@ steps/
   validate-json-schema.ts     # validate a JSON file against a caller-supplied JSON Schema
   validate-business-logic.ts  # declarative cross-file rules (e.g. inbound CSV vs outbound JSON)
   consolidate-run-results.ts  # fold named steps' outputs into one JSON for trending/reporting
+  publish-to-confluence.ts    # publish consolidated run results as a Confluence Cloud page
 configs/
   generate-users-csv.json
   gpg-encrypt-users-csv.json
@@ -37,6 +38,7 @@ configs/
   validate-json-schema.json
   validate-business-logic.json
   consolidate-run-results.json
+  publish-to-confluence.json
   schemas/outbound-result-schema.json
 azure-pipelines.yml
 tsconfig.json     # strict, noEmit (tsx executes TS directly)
@@ -117,6 +119,18 @@ npx tsx runner/run-step.ts \
   --step steps/consolidate-run-results.ts \
   --config configs/consolidate-run-results.json \
   --name consolidateResults
+```
+
+Publish to Confluence (needs `CONFLUENCE_EMAIL`/`CONFLUENCE_API_TOKEN`, and
+a `run-results.json` already produced by `consolidate-run-results`):
+
+```bash
+export CONFLUENCE_EMAIL="you@example.com"
+export CONFLUENCE_API_TOKEN="..."
+npx tsx runner/run-step.ts \
+  --step steps/publish-to-confluence.ts \
+  --config configs/publish-to-confluence.json \
+  --name publishConfluence
 ```
 
 Blob storage steps (need `DefaultAzureCredential` to resolve — e.g.

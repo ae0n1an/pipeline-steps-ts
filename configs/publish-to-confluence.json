@@ -1,0 +1,8 @@
+{
+  "baseUrl": "https://yoursite.atlassian.net/wiki",
+  "email": "{{env.CONFLUENCE_EMAIL}}",
+  "apiToken": "{{env.CONFLUENCE_API_TOKEN}}",
+  "spaceKey": "ENG",
+  "pageTitle": "Pipeline Run Status",
+  "resultsPath": "{{env.PIPELINE_WORKSPACE}}/step-output/consolidateResults/run-results.json"
+}

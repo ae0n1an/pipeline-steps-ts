@@ -198,3 +198,30 @@ stages:
             env:
               BUILD_BUILDID: $(Build.BuildId)
               BUILD_SOURCEBRANCH: $(Build.SourceBranch)
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish run results artifact'
+            inputs:
+              targetPath: '$(Pipeline.Workspace)/step-output'
+              artifact: 'step-output-final'
+
+  - stage: Publish
+    dependsOn: Deliver
+    condition: succeededOrFailed()
+    jobs:
+      - job: publish_confluence
+        steps:
+          - download: current
+            artifact: step-output-final
+
+          # ---- Step: publish consolidated run results to Confluence ---
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/publish-to-confluence.ts
+              --config configs/publish-to-confluence.json
+              --name publishConfluence
+            name: publishConfluence
+            displayName: 'Publish run results to Confluence'
+            env:
+              CONFLUENCE_EMAIL: $(confluence-email)
+              CONFLUENCE_API_TOKEN: $(confluence-api-token)
