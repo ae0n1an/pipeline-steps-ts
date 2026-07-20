@@ -97,14 +97,38 @@ stages:
               AZURE_CLIENT_SECRET: $(azureClientSecret)
               AZURE_TENANT_ID: $(azureTenantId)
 
-          # ---- Step 3: trigger ADF pipelines in parallel, poll to done -
+          # ---- Step 3a: wait to see if an external scheduler (e.g.
+          # Control-M) already auto-triggered these pipelines -----------
           - script: >
               npx tsx runner/run-step.ts
-              --step steps/trigger-adf-pipeline.ts
-              --config configs/trigger-adf-pipelines.json
-              --name triggerAdf
-            name: triggerAdf
-            displayName: 'Trigger ADF pipelines'
+              --step steps/wait-for-adf-pipeline-trigger.ts
+              --config configs/wait-for-adf-pipeline-trigger.json
+              --name waitForTrigger
+            name: waitForTrigger
+            displayName: 'Wait for automatic ADF pipeline trigger'
+            env:
+              ADF_ACCESS_TOKEN: $(adfAccessToken)
+
+          # ---- Step 3b: trigger any pipeline that wasn't auto-triggered,
+          # pass through the runId for any that was ----------------------
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/execute-adf-pipeline.ts
+              --config configs/execute-adf-pipelines.json
+              --name executeAdf
+            name: executeAdf
+            displayName: 'Trigger ADF pipelines (fallback for missed auto-triggers)'
+            env:
+              ADF_ACCESS_TOKEN: $(adfAccessToken)
+
+          # ---- Step 3c: poll every ADF pipeline run to completion -------
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/poll-adf-pipeline-runs.ts
+              --config configs/poll-adf-pipeline-runs.json
+              --name pollAdf
+            name: pollAdf
+            displayName: 'Poll ADF pipeline runs to completion'
             env:
               ADF_ACCESS_TOKEN: $(adfAccessToken)
 

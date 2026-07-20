@@ -1,0 +1,12 @@
+{
+  "accessToken": "{{env.ADF_ACCESS_TOKEN}}",
+  "subscriptionId": "00000000-0000-0000-0000-000000000000",
+  "resourceGroup": "my-resource-group",
+  "factoryName": "my-data-factory",
+  "pollIntervalMs": 15000,
+  "timeoutMs": 3600000,
+  "runs": [
+    { "name": "copyOrders", "runId": "{{steps.executeAdf.outputs.copyOrders_runId}}", "pipelineName": "CopyOrdersPipeline" },
+    { "name": "copyInvoices", "runId": "{{steps.executeAdf.outputs.copyInvoices_runId}}", "pipelineName": "CopyInvoicesPipeline" }
+  ]
+}

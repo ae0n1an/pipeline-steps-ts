@@ -13,10 +13,13 @@ runner/
 steps/
   lib/
     blob-client.ts             # shared Azure Blob Storage client (real + fake, used by the 3 steps below)
+    adf-client.ts             # shared ADF target resolution, URL builders, trigger + poll (used by the 3 steps above)
     csv.ts                    # shared CSV parser (used by verify-row-count, validate-business-logic)
   generate-synthetic-csv.ts   # mock CSV from typed column configs
   gpg-encrypt-file.ts         # GPG-encrypt with a key from Azure Key Vault
-  trigger-adf-pipeline.ts     # trigger + poll ADF pipeline run(s) in parallel
+  wait-for-adf-pipeline-trigger.ts  # detect an already-fired automatic ADF trigger, or time out
+  execute-adf-pipeline.ts     # trigger ADF pipeline run(s) in parallel (or pass through an existingRunId)
+  poll-adf-pipeline-runs.ts   # poll ADF pipeline run(s) to a terminal status in parallel
   extract-adf-run-details.ts  # extract ADF pipeline + activity run detail, recursing into nested pipeline calls
   remove-blob-files.ts        # delete blobs matching a glob path pattern
   upload-to-blob.ts           # upload local file(s) to blob storage
@@ -29,7 +32,9 @@ steps/
 configs/
   generate-users-csv.json
   gpg-encrypt-users-csv.json
-  trigger-adf-pipelines.json
+  wait-for-adf-pipeline-trigger.json
+  execute-adf-pipelines.json
+  poll-adf-pipeline-runs.json
   extract-adf-run-details.json
   remove-blob-files.json
   upload-to-blob.json
@@ -65,11 +70,12 @@ export default defineStep<MyConfig>({
 column definitions are a discriminated union, so invalid combinations
 (e.g. `values` on an `int` column) fail `npm run typecheck`.
 
-The two exceptions to "every step is standalone": `steps/lib/blob-client.ts`
-(shared by the three blob-storage steps) and `steps/lib/csv.ts` (shared by
-`verify-row-count` and `validate-business-logic`) — both cases where three
-or two steps needed identical, non-trivial logic and duplicating it bought
-nothing.
+The three exceptions to "every step is standalone": `steps/lib/blob-client.ts`
+(shared by the three blob-storage steps), `steps/lib/csv.ts` (shared by
+`verify-row-count` and `validate-business-logic`), and `steps/lib/adf-client.ts`
+(shared by `wait-for-adf-pipeline-trigger`, `execute-adf-pipeline`, and
+`poll-adf-pipeline-runs`) — all cases where several steps needed identical,
+non-trivial logic and duplicating it bought nothing.
 
 ## Running
 
@@ -89,20 +95,31 @@ npx tsx runner/run-step.ts \
   --name gpgEncryptCsv
 ```
 
-Trigger ADF pipelines (needs an ARM access token — see the `AzureCLI@2` task
-in `.pipelines/azure-pipelines.yml`, or `az account get-access-token
---resource https://management.azure.com/` locally):
+Wait for an automatic ADF trigger, then execute (fallback) and poll to
+completion (all need an ARM access token — see the `AzureCLI@2` task in
+`.pipelines/azure-pipelines.yml`, or `az account get-access-token --resource
+https://management.azure.com/` locally):
 
 ```bash
 export ADF_ACCESS_TOKEN="$(az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv)"
 npx tsx runner/run-step.ts \
-  --step steps/trigger-adf-pipeline.ts \
-  --config configs/trigger-adf-pipelines.json \
-  --name triggerAdf
+  --step steps/wait-for-adf-pipeline-trigger.ts \
+  --config configs/wait-for-adf-pipeline-trigger.json \
+  --name waitForTrigger
+
+npx tsx runner/run-step.ts \
+  --step steps/execute-adf-pipeline.ts \
+  --config configs/execute-adf-pipelines.json \
+  --name executeAdf
+
+npx tsx runner/run-step.ts \
+  --step steps/poll-adf-pipeline-runs.ts \
+  --config configs/poll-adf-pipeline-runs.json \
+  --name pollAdf
 ```
 
-Extract ADF run details (needs the same `ADF_ACCESS_TOKEN` as
-`trigger-adf-pipeline`; run IDs typically come from that step's outputs):
+Extract ADF run details (needs the same `ADF_ACCESS_TOKEN`; run IDs
+typically come from `poll-adf-pipeline-runs`' outputs):
 
 ```bash
 npx tsx runner/run-step.ts \
@@ -184,11 +201,12 @@ run `node dist/runner/run-step.js` instead.
 2. **Pipeline output variables** — every output is emitted via
    `##vso[task.setvariable …;isOutput=true]`; read as
    `$(genUsersCsv.genUsersCsv.usersCsv_rowCount)` or via
-   `stageDependencies`. `generate-synthetic-csv`, `gpg-encrypt-file`, and
-   `trigger-adf-pipeline` all support multiple items per invocation, and
-   all three flatten each item's outputs under a prefix — that item's
-   configured `name` (or `f0`, `f1`, … / `p0`, `p1`, … by index if `name`
-   is omitted), e.g. `$(triggerAdf.triggerAdf.copyOrders_status)`.
+   `stageDependencies`. `generate-synthetic-csv`, `gpg-encrypt-file`,
+   `wait-for-adf-pipeline-trigger`, `execute-adf-pipeline`, and
+   `poll-adf-pipeline-runs` all support multiple items per invocation, and
+   all flatten each item's outputs under a prefix — that item's configured
+   `name` (or `f0`, `f1`, … / `p0`, `p1`, … by index if `name` is omitted),
+   e.g. `$(executeAdf.executeAdf.copyOrders_status)`.
 3. **Published artifacts** — the `step-output/` tree is published whole.
 
 ## Azure Key Vault

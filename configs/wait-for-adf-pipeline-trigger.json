@@ -1,0 +1,12 @@
+{
+  "accessToken": "{{env.ADF_ACCESS_TOKEN}}",
+  "subscriptionId": "00000000-0000-0000-0000-000000000000",
+  "resourceGroup": "my-resource-group",
+  "factoryName": "my-data-factory",
+  "pollIntervalMs": 15000,
+  "waitTimeoutMs": 600000,
+  "pipelines": [
+    { "name": "copyOrders", "pipelineName": "CopyOrdersPipeline" },
+    { "name": "copyInvoices", "pipelineName": "CopyInvoicesPipeline" }
+  ]
+}

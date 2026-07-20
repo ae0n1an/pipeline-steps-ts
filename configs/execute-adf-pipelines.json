@@ -3,18 +3,18 @@
   "subscriptionId": "00000000-0000-0000-0000-000000000000",
   "resourceGroup": "my-resource-group",
   "factoryName": "my-data-factory",
-  "pollIntervalMs": 15000,
-  "timeoutMs": 3600000,
   "pipelines": [
     {
       "name": "copyOrders",
       "pipelineName": "CopyOrdersPipeline",
-      "parameters": { "sourcePath": "{{steps.genUsersCsv.outputs.usersCsv_csvPath}}" }
+      "parameters": { "sourcePath": "{{steps.genUsersCsv.outputs.usersCsv_csvPath}}" },
+      "existingRunId": "{{steps.waitForTrigger.outputs.copyOrders_runId}}"
     },
     {
       "name": "copyInvoices",
       "pipelineName": "CopyInvoicesPipeline",
-      "parameters": { "runDate": "{{env.BUILD_SOURCEVERSIONDATE}}" }
+      "parameters": { "runDate": "{{env.BUILD_SOURCEVERSIONDATE}}" },
+      "existingRunId": "{{steps.waitForTrigger.outputs.copyInvoices_runId}}"
     }
   ]
 }
