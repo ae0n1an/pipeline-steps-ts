@@ -17,22 +17,28 @@ steps/
   generate-synthetic-csv.ts   # mock CSV from typed column configs
   gpg-encrypt-file.ts         # GPG-encrypt with a key from Azure Key Vault
   trigger-adf-pipeline.ts     # trigger + poll ADF pipeline run(s) in parallel
+  extract-adf-run-details.ts  # extract ADF pipeline + activity run detail, recursing into nested pipeline calls
   remove-blob-files.ts        # delete blobs matching a glob path pattern
   upload-to-blob.ts           # upload local file(s) to blob storage
   verify-and-download-blob.ts # verify expected blob(s) exist and download them
   verify-row-count.ts         # check a file's row/entry count against a min/max range
   validate-json-schema.ts     # validate a JSON file against a caller-supplied JSON Schema
   validate-business-logic.ts  # declarative cross-file rules (e.g. inbound CSV vs outbound JSON)
+  consolidate-run-results.ts  # fold named steps' outputs into one JSON for trending/reporting
+  publish-to-confluence.ts    # publish consolidated run results as a Confluence Cloud page
 configs/
   generate-users-csv.json
   gpg-encrypt-users-csv.json
   trigger-adf-pipelines.json
+  extract-adf-run-details.json
   remove-blob-files.json
   upload-to-blob.json
   verify-and-download-blob.json
   verify-row-count.json
   validate-json-schema.json
   validate-business-logic.json
+  consolidate-run-results.json
+  publish-to-confluence.json
   schemas/outbound-result-schema.json
 azure-pipelines.yml
 tsconfig.json     # strict, noEmit (tsx executes TS directly)
@@ -93,6 +99,38 @@ npx tsx runner/run-step.ts \
   --step steps/trigger-adf-pipeline.ts \
   --config configs/trigger-adf-pipelines.json \
   --name triggerAdf
+```
+
+Extract ADF run details (needs the same `ADF_ACCESS_TOKEN` as
+`trigger-adf-pipeline`; run IDs typically come from that step's outputs):
+
+```bash
+npx tsx runner/run-step.ts \
+  --step steps/extract-adf-run-details.ts \
+  --config configs/extract-adf-run-details.json \
+  --name extractAdfDetails
+```
+
+Consolidate run results (reads `ctx.steps`, so it must run after the steps
+it names — no external auth needed):
+
+```bash
+npx tsx runner/run-step.ts \
+  --step steps/consolidate-run-results.ts \
+  --config configs/consolidate-run-results.json \
+  --name consolidateResults
+```
+
+Publish to Confluence (needs `CONFLUENCE_EMAIL`/`CONFLUENCE_API_TOKEN`, and
+a `run-results.json` already produced by `consolidate-run-results`):
+
+```bash
+export CONFLUENCE_EMAIL="you@example.com"
+export CONFLUENCE_API_TOKEN="..."
+npx tsx runner/run-step.ts \
+  --step steps/publish-to-confluence.ts \
+  --config configs/publish-to-confluence.json \
+  --name publishConfluence
 ```
 
 Blob storage steps (need `DefaultAzureCredential` to resolve — e.g.

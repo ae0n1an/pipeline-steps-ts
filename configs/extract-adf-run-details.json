@@ -1,0 +1,11 @@
+{
+  "accessToken": "{{env.ADF_ACCESS_TOKEN}}",
+  "subscriptionId": "00000000-0000-0000-0000-000000000000",
+  "resourceGroup": "my-resource-group",
+  "factoryName": "my-data-factory",
+  "maxDepth": 5,
+  "runs": [
+    { "name": "copyOrders", "runId": "{{steps.triggerAdf.outputs.copyOrders_runId}}" },
+    { "name": "copyInvoices", "runId": "{{steps.triggerAdf.outputs.copyInvoices_runId}}" }
+  ]
+}
