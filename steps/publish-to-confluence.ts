@@ -37,7 +37,7 @@ export interface PublishToConfluenceConfig {
 export interface ConsolidatedStepEntry {
   stepName: string;
   ok: boolean;
-  outputs: Record<string, any>;
+  outputs: Record<string, unknown>;
   error?: string;
 }
 
