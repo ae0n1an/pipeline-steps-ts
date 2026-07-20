@@ -107,6 +107,19 @@ earlier step in the same job failed — otherwise Azure Pipelines would
 skip it along with the rest of the job on a prior failure, defeating the
 purpose.
 
+**Known limitation of this protection:** `condition: always()` only
+rescues *in-job* failures. If a step in an *earlier stage* fails (e.g. the
+`Generate` stage in this repo's example pipeline), the runner process
+exits non-zero, the unconditioned artifact-publish step is skipped, and
+any stage that `dependsOn` the failed one (e.g. `Deliver`) is skipped
+entirely — so a `consolidate-run-results` step placed in that later stage
+never runs and produces no report at all, in exactly the "something blew
+up" scenario the report exists for. Closing this gap (e.g. giving the
+artifact-publish step and the dependent stage their own
+`condition: always()`/`succeededOrFailed()` guards) is a pipeline-topology
+change outside this step's own scope — noted here so it isn't discovered
+as a surprise later, not because this design is expected to fix it.
+
 ## Out of scope
 
 - No historical/trend computation in this step itself — it emits one
