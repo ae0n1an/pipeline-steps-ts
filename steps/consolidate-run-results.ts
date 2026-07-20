@@ -76,3 +76,29 @@ export function buildConsolidatedResult(
     },
   };
 }
+
+export function runAll(config: ConsolidateRunResultsConfig, ctx: StepContext): StepResult {
+  const result = buildConsolidatedResult(config, ctx.steps);
+
+  const fileName = config.fileName ?? 'run-results.json';
+  const filePath = path.join(ctx.outDir, fileName);
+  fs.writeFileSync(filePath, JSON.stringify(result, null, 2));
+
+  ctx.log(
+    `Consolidated ${result.summary.totalSteps} step(s): ${result.summary.succeededCount} succeeded, ${result.summary.failedCount} failed -> ${fileName}`,
+  );
+
+  return {
+    outputs: {
+      consolidatedPath: filePath,
+      totalSteps: result.summary.totalSteps,
+      succeededCount: result.summary.succeededCount,
+      failedCount: result.summary.failedCount,
+    },
+    artifacts: [filePath],
+  };
+}
+
+export default defineStep<ConsolidateRunResultsConfig>({
+  run: (config, ctx) => runAll(config, ctx),
+});

@@ -68,3 +68,58 @@ test('buildConsolidatedResult throws when config.stepNames is empty', () => {
     /config\.stepNames must contain at least one step name/,
   );
 });
+
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { runAll } from './consolidate-run-results';
+import type { StepContext } from '../runner/types';
+
+function fakeCtx(outDir: string, steps: Record<string, StepOutputFile>): StepContext {
+  return { stepName: 'test', outDir, workspace: outDir, steps, log: () => {}, warn: () => {} };
+}
+
+test('runAll writes the consolidated JSON artifact and returns summary outputs', () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consolidate-test-'));
+  try {
+    const steps = {
+      genUsersCsv: fakeStepOutput({ ok: true, outputs: { usersCsv_rowCount: 250 } }),
+    };
+    const config = { stepNames: ['genUsersCsv'] };
+    const result = runAll(config, fakeCtx(outDir, steps));
+    assert.equal(result.outputs?.totalSteps, 1);
+    assert.equal(result.outputs?.succeededCount, 1);
+    assert.equal(result.outputs?.failedCount, 0);
+    const filePath = result.outputs?.consolidatedPath as string;
+    assert.ok(fs.existsSync(filePath));
+    const written = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    assert.equal(written.steps[0].stepName, 'genUsersCsv');
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll uses a custom fileName when configured', () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consolidate-test-'));
+  try {
+    const steps = { a: fakeStepOutput() };
+    const result = runAll({ stepNames: ['a'], fileName: 'custom-report.json' }, fakeCtx(outDir, steps));
+    assert.ok((result.outputs?.consolidatedPath as string).endsWith('custom-report.json'));
+    assert.ok(fs.existsSync(path.join(outDir, 'custom-report.json')));
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll propagates a missing-step-name error without writing a file', () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consolidate-test-'));
+  try {
+    assert.throws(
+      () => runAll({ stepNames: ['missing'] }, fakeCtx(outDir, {})),
+      /missing/,
+    );
+    assert.deepEqual(fs.readdirSync(outDir), []);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
