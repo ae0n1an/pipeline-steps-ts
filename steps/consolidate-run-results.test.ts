@@ -123,3 +123,58 @@ test('runAll propagates a missing-step-name error without writing a file', () =>
     fs.rmSync(outDir, { recursive: true, force: true });
   }
 });
+
+test("buildConsolidatedResult embeds a step's artifact JSON under data when embedArtifacts names it", () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consolidate-embed-test-'));
+  try {
+    const artifactPath = path.join(outDir, 'adf-run-details.json');
+    fs.writeFileSync(artifactPath, JSON.stringify({ pipelineRuns: [{ runId: 'r1' }], activities: [] }));
+    const steps = {
+      extractAdfDetails: fakeStepOutput({ ok: true, artifacts: [artifactPath] }),
+    };
+    const result = buildConsolidatedResult(
+      { stepNames: ['extractAdfDetails'], embedArtifacts: { extractAdfDetails: 'adf-run-details.json' } },
+      steps,
+    );
+    assert.deepEqual(result.steps[0].data, { pipelineRuns: [{ runId: 'r1' }], activities: [] });
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('buildConsolidatedResult omits data when embedArtifacts is not configured for a step', () => {
+  const steps = { a: fakeStepOutput() };
+  const result = buildConsolidatedResult({ stepNames: ['a'] }, steps);
+  assert.equal(result.steps[0].data, undefined);
+});
+
+test('buildConsolidatedResult throws when embedArtifacts references a step not in stepNames', () => {
+  const steps = { a: fakeStepOutput() };
+  assert.throws(
+    () => buildConsolidatedResult({ stepNames: ['a'], embedArtifacts: { b: 'x.json' } }, steps),
+    /embedArtifacts references step\(s\) not in stepNames: b/,
+  );
+});
+
+test("buildConsolidatedResult throws when the named artifact is not found among the step's artifacts", () => {
+  const steps = { a: fakeStepOutput({ artifacts: ['/tmp/other-file.json'] }) };
+  assert.throws(
+    () => buildConsolidatedResult({ stepNames: ['a'], embedArtifacts: { a: 'missing.json' } }, steps),
+    /no artifact named "missing\.json" found \(has: other-file\.json\)/,
+  );
+});
+
+test('buildConsolidatedResult throws when the embedded artifact file is not valid JSON', () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consolidate-embed-test-'));
+  try {
+    const artifactPath = path.join(outDir, 'bad.json');
+    fs.writeFileSync(artifactPath, 'not json{');
+    const steps = { a: fakeStepOutput({ artifacts: [artifactPath] }) };
+    assert.throws(
+      () => buildConsolidatedResult({ stepNames: ['a'], embedArtifacts: { a: 'bad.json' } }, steps),
+      /is not valid JSON/,
+    );
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
