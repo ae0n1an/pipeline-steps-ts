@@ -648,7 +648,7 @@ git commit -m "feat: add runAll orchestration and default step export for publis
 - Modify: `README.md`
 
 **Interfaces:**
-- Consumes: `PublishToConfluenceConfig` from Task 1; `consolidate-run-results`' known output file location (`step-output/consolidateResults/run-results.json`, given the example config from Group D2 doesn't set a custom `fileName`).
+- Consumes: `PublishToConfluenceConfig` from Task 1; `consolidate-run-results`' known output file location (`step-output-final/consolidateResults/run-results.json` once downloaded in the `Publish` stage — see the note on the artifact/download folder naming in Step 1 below — given the example config from Group D2 doesn't set a custom `fileName`).
 
 - [ ] **Step 1: Create the example config**
 
@@ -661,11 +661,13 @@ Create `configs/publish-to-confluence.json`:
   "apiToken": "{{env.CONFLUENCE_API_TOKEN}}",
   "spaceKey": "ENG",
   "pageTitle": "Pipeline Run Status",
-  "resultsPath": "{{env.PIPELINE_WORKSPACE}}/step-output/consolidateResults/run-results.json"
+  "resultsPath": "{{env.PIPELINE_WORKSPACE}}/step-output-final/consolidateResults/run-results.json"
 }
 ```
 
 **Why `{{env.PIPELINE_WORKSPACE}}` and not `{{steps.consolidateResults.outputs.consolidatedPath}}`:** this step runs in a brand-new pipeline **stage** (`Publish`, added below), which gets a fresh agent workspace — `{{steps.X.outputs.Y}}` would interpolate the literal absolute path *recorded* by `consolidateResults` when it ran in the `Deliver` stage's workspace, which won't exist on the `Publish` stage's agent. `PIPELINE_WORKSPACE` is already set as a pipeline-wide variable (`.pipelines/azure-pipelines.yml`'s top-level `variables:` block) and is automatically exposed as an env var to every job, so `{{env.PIPELINE_WORKSPACE}}` always resolves to the *current* job's own workspace — exactly the same mechanism `runner/run-step.ts`'s own `workspaceRoot()` already uses internally. This is the same pattern the existing `Deliver` stage already uses (its `cat $(Pipeline.Workspace)/step-output/gpgEncryptCsv/output.json` line reconstructs a path relative to its own workspace rather than trusting a cross-stage absolute path).
+
+**Why `step-output-final/` and not `step-output/` in this path:** Azure's `download` step (used in Step 2 below) places a downloaded artifact at `$(Pipeline.Workspace)/<artifact-name>/` when no explicit `path:` is given — the artifact's *name* becomes the destination folder, not the original `targetPath` it was published from. Since the `Deliver` stage's new publish task (Step 2) deliberately names the artifact `step-output-final` (to avoid colliding with `Generate`'s `step-output`), the `Publish` stage's download of that same artifact lands at `$(Pipeline.Workspace)/step-output-final/`, not `$(Pipeline.Workspace)/step-output/`. The existing `Deliver` stage's `step-output` reference works today only because it happens to download an artifact that is *also* named `step-output` — that naming coincidence doesn't hold once a differently-named artifact is introduced, so this config must reference `step-output-final/` explicitly.
 
 - [ ] **Step 2: Add an artifact-publish task to Deliver, and a new Publish stage**
 
