@@ -2,7 +2,9 @@
   "stepNames": [
     "genUsersCsv",
     "gpgEncryptCsv",
-    "triggerAdf",
+    "waitForTrigger",
+    "executeAdf",
+    "pollAdf",
     "extractAdfDetails",
     "verifyResult",
     "verifyRowCount",

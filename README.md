@@ -13,7 +13,7 @@ runner/
 steps/
   lib/
     blob-client.ts             # shared Azure Blob Storage client (real + fake, used by the 3 steps below)
-    adf-client.ts             # shared ADF target resolution, URL builders, trigger + poll (used by the 3 steps above)
+    adf-client.ts             # shared ADF target resolution, URL builders, trigger + poll (used by the 3 steps below)
     csv.ts                    # shared CSV parser (used by verify-row-count, validate-business-logic)
   generate-synthetic-csv.ts   # mock CSV from typed column configs
   gpg-encrypt-file.ts         # GPG-encrypt with a key from Azure Key Vault
