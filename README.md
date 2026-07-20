@@ -24,6 +24,7 @@ steps/
   verify-row-count.ts         # check a file's row/entry count against a min/max range
   validate-json-schema.ts     # validate a JSON file against a caller-supplied JSON Schema
   validate-business-logic.ts  # declarative cross-file rules (e.g. inbound CSV vs outbound JSON)
+  consolidate-run-results.ts  # fold named steps' outputs into one JSON for trending/reporting
 configs/
   generate-users-csv.json
   gpg-encrypt-users-csv.json
@@ -35,6 +36,7 @@ configs/
   verify-row-count.json
   validate-json-schema.json
   validate-business-logic.json
+  consolidate-run-results.json
   schemas/outbound-result-schema.json
 azure-pipelines.yml
 tsconfig.json     # strict, noEmit (tsx executes TS directly)
@@ -105,6 +107,16 @@ npx tsx runner/run-step.ts \
   --step steps/extract-adf-run-details.ts \
   --config configs/extract-adf-run-details.json \
   --name extractAdfDetails
+```
+
+Consolidate run results (reads `ctx.steps`, so it must run after the steps
+it names — no external auth needed):
+
+```bash
+npx tsx runner/run-step.ts \
+  --step steps/consolidate-run-results.ts \
+  --config configs/consolidate-run-results.json \
+  --name consolidateResults
 ```
 
 Blob storage steps (need `DefaultAzureCredential` to resolve — e.g.

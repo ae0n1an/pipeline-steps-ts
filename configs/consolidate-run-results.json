@@ -1,0 +1,16 @@
+{
+  "stepNames": [
+    "genUsersCsv",
+    "gpgEncryptCsv",
+    "triggerAdf",
+    "extractAdfDetails",
+    "verifyResult",
+    "verifyRowCount",
+    "validateSchema",
+    "validateBusinessLogic"
+  ],
+  "runMetadata": {
+    "buildId": "{{env.BUILD_BUILDID}}",
+    "branch": "{{env.BUILD_SOURCEBRANCH}}"
+  }
+}

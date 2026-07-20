@@ -185,3 +185,16 @@ stages:
               echo "Encrypted artifact from upstream: $(encryptedFile)"
               cat $(Pipeline.Workspace)/step-output/gpgEncryptCsv/output.json
             displayName: 'Read upstream JSON / pick up encrypted file'
+
+          # ---- Step: consolidate this run's results for trending/reporting
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/consolidate-run-results.ts
+              --config configs/consolidate-run-results.json
+              --name consolidateResults
+            name: consolidateResults
+            displayName: 'Consolidate run results'
+            condition: always()
+            env:
+              BUILD_BUILDID: $(Build.BuildId)
+              BUILD_SOURCEBRANCH: $(Build.SourceBranch)
