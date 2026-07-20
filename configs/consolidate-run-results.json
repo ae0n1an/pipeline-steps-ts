@@ -11,6 +11,9 @@
     "validateSchema",
     "validateBusinessLogic"
   ],
+  "embedArtifacts": {
+    "extractAdfDetails": "adf-run-details.json"
+  },
   "runMetadata": {
     "buildId": "{{env.BUILD_BUILDID}}",
     "branch": "{{env.BUILD_SOURCEBRANCH}}"

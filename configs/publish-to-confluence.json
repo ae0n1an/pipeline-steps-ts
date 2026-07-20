@@ -4,5 +4,40 @@
   "apiToken": "{{env.CONFLUENCE_API_TOKEN}}",
   "spaceKey": "ENG",
   "pageTitle": "Pipeline Run Status",
-  "resultsPath": "{{env.PIPELINE_WORKSPACE}}/step-output-final/consolidateResults/run-results.json"
+  "resultsPath": "{{env.PIPELINE_WORKSPACE}}/step-output-final/consolidateResults/run-results.json",
+  "sections": [
+    {
+      "title": "ADF Pipeline Runs",
+      "dataFrom": "extractAdfDetails",
+      "source": "data",
+      "arrayPath": "pipelineRuns",
+      "layout": "table",
+      "fields": [
+        { "label": "Pipeline", "field": "pipelineName" },
+        { "label": "Run ID", "field": "runId" },
+        { "label": "Status", "field": "status" },
+        { "label": "Start", "field": "runStart" },
+        { "label": "Duration (ms)", "field": "durationMs" }
+      ]
+    },
+    {
+      "title": "ADF Activities",
+      "dataFrom": "extractAdfDetails",
+      "source": "data",
+      "arrayPath": "activities",
+      "layout": "table",
+      "fields": [
+        { "label": "Activity", "field": "activityName" },
+        { "label": "Activity ID", "field": "activityId" },
+        { "label": "Status", "field": "status" },
+        { "label": "Start", "field": "activityRunStart" },
+        { "label": "Duration (ms)", "field": "durationMs" }
+      ]
+    },
+    {
+      "title": "Business Logic Validation",
+      "dataFrom": "validateBusinessLogic",
+      "layout": "bullets"
+    }
+  ]
 }

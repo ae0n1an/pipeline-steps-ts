@@ -129,7 +129,11 @@ npx tsx runner/run-step.ts \
 ```
 
 Consolidate run results (reads `ctx.steps`, so it must run after the steps
-it names — no external auth needed):
+it names — no external auth needed). `embedArtifacts` optionally embeds a
+named step's full JSON artifact (not just its flat outputs) under that
+step's `data` field — e.g. `extract-adf-run-details`'s pipeline-run and
+activity detail, which otherwise never leaves that step's own artifact
+file:
 
 ```bash
 npx tsx runner/run-step.ts \
@@ -139,7 +143,13 @@ npx tsx runner/run-step.ts \
 ```
 
 Publish to Confluence (needs `CONFLUENCE_EMAIL`/`CONFLUENCE_API_TOKEN`, and
-a `run-results.json` already produced by `consolidate-run-results`):
+a `run-results.json` already produced by `consolidate-run-results`). The
+optional `sections` config controls report layout per step — `table`
+(explicit columns, one row per array item), `bullets` (one heading + list
+per array item, or a flat list for a single object), or `keyvalue` (a
+two-column table, the default when `sections` is omitted entirely). A
+table/bullets/keyvalue cell whose value is itself an object or array
+renders as a nested bullet list automatically:
 
 ```bash
 export CONFLUENCE_EMAIL="you@example.com"
