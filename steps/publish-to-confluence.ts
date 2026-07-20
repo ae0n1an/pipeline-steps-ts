@@ -94,3 +94,89 @@ ${metadataRows}
 ${stepRows}
 </tbody></table>`;
 }
+
+// ---------- Network layer (dependency-injected for testing) -------------------
+
+export interface FetchLike {
+  (
+    url: string,
+    init?: { method?: string; headers?: Record<string, string>; body?: string },
+  ): Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }>;
+}
+
+function authHeader(email: string, apiToken: string): string {
+  const encoded = Buffer.from(`${email}:${apiToken}`).toString('base64');
+  return `Basic ${encoded}`;
+}
+
+export async function findExistingPage(
+  config: PublishToConfluenceConfig,
+  fetchImpl: FetchLike,
+): Promise<{ id: string; version: number } | null> {
+  const url = `${config.baseUrl}/rest/api/content?spaceKey=${encodeURIComponent(config.spaceKey)}&title=${encodeURIComponent(config.pageTitle)}&expand=version`;
+  const res = await fetchImpl(url, {
+    headers: { Authorization: authHeader(config.email, config.apiToken) },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Confluence page search failed (HTTP ${res.status}): ${body}`);
+  }
+  const data = await res.json();
+  if (!data.results || data.results.length === 0) return null;
+  return { id: data.results[0].id, version: data.results[0].version.number };
+}
+
+export async function createPage(
+  config: PublishToConfluenceConfig,
+  content: string,
+  fetchImpl: FetchLike,
+): Promise<{ id: string; url: string }> {
+  const body: Record<string, unknown> = {
+    type: 'page',
+    title: config.pageTitle,
+    space: { key: config.spaceKey },
+    body: { storage: { value: content, representation: 'storage' } },
+  };
+  if (config.parentPageId) body.ancestors = [{ id: config.parentPageId }];
+
+  const res = await fetchImpl(`${config.baseUrl}/rest/api/content`, {
+    method: 'POST',
+    headers: { Authorization: authHeader(config.email, config.apiToken), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const respBody = await res.text();
+    throw new Error(`Confluence page create failed (HTTP ${res.status}): ${respBody}`);
+  }
+  const data = await res.json();
+  return { id: data.id, url: `${config.baseUrl}${data._links.webui}` };
+}
+
+export async function updatePage(
+  config: PublishToConfluenceConfig,
+  pageId: string,
+  currentVersion: number,
+  content: string,
+  fetchImpl: FetchLike,
+): Promise<{ id: string; url: string }> {
+  const body = {
+    id: pageId,
+    type: 'page',
+    title: config.pageTitle,
+    space: { key: config.spaceKey },
+    body: { storage: { value: content, representation: 'storage' } },
+    version: { number: currentVersion + 1 },
+  };
+
+  const res = await fetchImpl(`${config.baseUrl}/rest/api/content/${pageId}`, {
+    method: 'PUT',
+    headers: { Authorization: authHeader(config.email, config.apiToken), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const respBody = await res.text();
+    throw new Error(`Confluence page update failed (HTTP ${res.status}): ${respBody}`);
+  }
+  const data = await res.json();
+  return { id: data.id, url: `${config.baseUrl}${data._links.webui}` };
+}
