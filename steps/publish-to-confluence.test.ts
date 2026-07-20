@@ -1,7 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { escapeXhtml, renderConfluenceStorageFormat } from './publish-to-confluence';
 import { findExistingPage, createPage, updatePage, type FetchLike } from './publish-to-confluence';
+import { runAll } from './publish-to-confluence';
+import type { StepContext } from '../runner/types';
 
 test('escapeXhtml escapes &, <, >, and "', () => {
   assert.equal(escapeXhtml('<b>a & "b"</b>'), '&lt;b&gt;a &amp; &quot;b&quot;&lt;/b&gt;');
@@ -134,4 +139,89 @@ test('updatePage sends a PUT to the page-specific URL with an incremented versio
 test('updatePage throws with status and body on non-2xx', async () => {
   const fetchImpl: FetchLike = async () => ({ ok: false, status: 409, json: async () => ({}), text: async () => 'Conflict' });
   await assert.rejects(() => updatePage(CONFIG, '123', 4, '<p/>', fetchImpl), /HTTP 409[\s\S]*Conflict/);
+});
+
+function fakeCtx(outDir: string): StepContext {
+  return { stepName: 'test', outDir, workspace: outDir, steps: {}, log: () => {}, warn: () => {} };
+}
+
+function writeResultsFile(dir: string): string {
+  const filePath = path.join(dir, 'run-results.json');
+  fs.writeFileSync(filePath, JSON.stringify({
+    runMetadata: { buildId: '1' },
+    generatedAt: 't',
+    steps: [{ stepName: 'a', ok: true, outputs: {} }],
+    summary: { totalSteps: 1, succeededCount: 1, failedCount: 0 },
+  }));
+  return filePath;
+}
+
+test('runAll creates a new page when none exists, writing the content artifact', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'confluence-test-'));
+  try {
+    const resultsPath = writeResultsFile(outDir);
+    const fetchImpl: FetchLike = async url => {
+      if (url.includes('spaceKey=')) {
+        return { ok: true, status: 200, json: async () => ({ results: [] }), text: async () => '' };
+      }
+      return { ok: true, status: 200, json: async () => ({ id: 'new-1', _links: { webui: '/x' } }), text: async () => '' };
+    };
+    const config = {
+      baseUrl: 'https://example.atlassian.net/wiki', email: 'e', apiToken: 't',
+      spaceKey: 'ENG', pageTitle: 'Status', resultsPath,
+    };
+    const result = await runAll(config, fakeCtx(outDir), fetchImpl);
+    assert.equal(result.outputs?.action, 'created');
+    assert.equal(result.outputs?.pageId, 'new-1');
+    const artifactPath = path.join(outDir, 'confluence-page-content.html');
+    assert.ok(fs.existsSync(artifactPath));
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll updates the existing page when one is found', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'confluence-test-'));
+  try {
+    const resultsPath = writeResultsFile(outDir);
+    const fetchImpl: FetchLike = async url => {
+      if (url.includes('spaceKey=')) {
+        return { ok: true, status: 200, json: async () => ({ results: [{ id: '123', version: { number: 2 } }] }), text: async () => '' };
+      }
+      return { ok: true, status: 200, json: async () => ({ id: '123', _links: { webui: '/x' } }), text: async () => '' };
+    };
+    const config = {
+      baseUrl: 'https://example.atlassian.net/wiki', email: 'e', apiToken: 't',
+      spaceKey: 'ENG', pageTitle: 'Status', resultsPath,
+    };
+    const result = await runAll(config, fakeCtx(outDir), fetchImpl);
+    assert.equal(result.outputs?.action, 'updated');
+    assert.equal(result.outputs?.pageId, '123');
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll throws when a required config field is missing', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'confluence-test-'));
+  try {
+    const resultsPath = writeResultsFile(outDir);
+    const config = { baseUrl: '', email: 'e', apiToken: 't', spaceKey: 'ENG', pageTitle: 'Status', resultsPath };
+    await assert.rejects(() => runAll(config as any, fakeCtx(outDir)), /baseUrl is required/);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('runAll throws when resultsPath does not exist', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'confluence-test-'));
+  try {
+    const config = {
+      baseUrl: 'https://example.atlassian.net/wiki', email: 'e', apiToken: 't',
+      spaceKey: 'ENG', pageTitle: 'Status', resultsPath: path.join(outDir, 'missing.json'),
+    };
+    await assert.rejects(() => runAll(config, fakeCtx(outDir)), /Results file not found/);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
 });

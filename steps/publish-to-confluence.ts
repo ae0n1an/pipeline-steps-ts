@@ -180,3 +180,60 @@ export async function updatePage(
   const data = await res.json();
   return { id: data.id, url: `${config.baseUrl}${data._links.webui}` };
 }
+
+// ---------- Orchestration ----------------------------------------------------
+
+const REQUIRED_CONFIG_FIELDS: Array<keyof PublishToConfluenceConfig> = [
+  'baseUrl',
+  'email',
+  'apiToken',
+  'spaceKey',
+  'pageTitle',
+  'resultsPath',
+];
+
+export async function runAll(
+  config: PublishToConfluenceConfig,
+  ctx: StepContext,
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+): Promise<StepResult> {
+  for (const field of REQUIRED_CONFIG_FIELDS) {
+    if (!config[field]) throw new Error(`config.${field} is required`);
+  }
+
+  if (!fs.existsSync(config.resultsPath)) {
+    throw new Error(`Results file not found: ${config.resultsPath}`);
+  }
+  const result: ConsolidatedResult = JSON.parse(fs.readFileSync(config.resultsPath, 'utf8'));
+
+  const content = renderConfluenceStorageFormat(result);
+  const contentPath = path.join(ctx.outDir, 'confluence-page-content.html');
+  fs.writeFileSync(contentPath, content);
+
+  const existing = await findExistingPage(config, fetchImpl);
+  let published: { id: string; url: string };
+  let action: 'created' | 'updated';
+
+  if (existing) {
+    published = await updatePage(config, existing.id, existing.version, content, fetchImpl);
+    action = 'updated';
+  } else {
+    published = await createPage(config, content, fetchImpl);
+    action = 'created';
+  }
+
+  ctx.log(`${action === 'created' ? 'Created' : 'Updated'} Confluence page "${config.pageTitle}" -> ${published.url}`);
+
+  return {
+    outputs: {
+      pageId: published.id,
+      pageUrl: published.url,
+      action,
+    },
+    artifacts: [contentPath],
+  };
+}
+
+export default defineStep<PublishToConfluenceConfig>({
+  run: (config, ctx) => runAll(config, ctx),
+});
