@@ -588,3 +588,82 @@ test('renderConfluenceStorageFormat throws when groupBy is used on non-array dat
   const sections = [{ title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'table' as const, groupBy: 'x' }];
   assert.throws(() => renderConfluenceStorageFormat(result, sections), /groupBy requires array data/);
 });
+
+test('renderConfluenceStorageFormat renders a gantt layout as a Mermaid code-block macro using durationField', () => {
+  const result = resultWithStep('a', {
+    data: [{ activityName: 'CopyData', activityRunStart: '2026-07-21T09:00:00.000Z', durationMs: 30000 }],
+  });
+  const sections = [{
+    title: 'Timeline', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'activityName', startField: 'activityRunStart', durationField: 'durationMs' },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">mermaid<\/ac:parameter>/);
+  assert.match(html, /gantt/);
+  assert.match(html, /section Activities/);
+  assert.match(html, /CopyData : 2026-07-21T09:00:00\.000Z, 2026-07-21T09:00:30\.000Z/);
+});
+
+test('renderConfluenceStorageFormat gantt prefers endField over durationField when both resolve', () => {
+  const result = resultWithStep('a', {
+    data: [{ name: 'A', s: '2026-07-21T09:00:00.000Z', e: '2026-07-21T09:05:00.000Z', durationMs: 999 }],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', endField: 'e', durationField: 'durationMs' },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /A : 2026-07-21T09:00:00\.000Z, 2026-07-21T09:05:00\.000Z/);
+});
+
+test('renderConfluenceStorageFormat gantt groups bars into Mermaid sections via sectionField, in order of first appearance', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { name: 'A1', s: '2026-07-21T09:00:00.000Z', durationMs: 1000, pipelineRunId: 'run-1' },
+      { name: 'B1', s: '2026-07-21T09:00:01.000Z', durationMs: 1000, pipelineRunId: 'run-2' },
+      { name: 'A2', s: '2026-07-21T09:00:02.000Z', durationMs: 1000, pipelineRunId: 'run-1' },
+    ],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', sectionField: 'pipelineRunId' },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  const run1Index = html.indexOf('section run-1');
+  const run2Index = html.indexOf('section run-2');
+  const a1Index = html.indexOf('A1 :');
+  const a2Index = html.indexOf('A2 :');
+  const b1Index = html.indexOf('B1 :');
+  assert.ok(run1Index < a1Index);
+  assert.ok(a1Index < a2Index);
+  assert.ok(a2Index < run2Index);
+  assert.ok(run2Index < b1Index);
+});
+
+test('renderConfluenceStorageFormat gantt strips colons from task names (Mermaid field separator)', () => {
+  const result = resultWithStep('a', {
+    data: [{ name: 'Copy: Orders', s: '2026-07-21T09:00:00.000Z', durationMs: 1000 }],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs' },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /Copy Orders : /);
+  assert.doesNotMatch(html, /Copy: Orders/);
+});
+
+test('renderConfluenceStorageFormat throws when gantt layout is missing gantt.taskField/startField', () => {
+  const result = resultWithStep('a', { data: [{ x: 1 }] });
+  const sections = [{ title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /gantt layout requires gantt\.taskField and gantt\.startField/);
+});
+
+test('renderConfluenceStorageFormat throws when a gantt item has no resolvable end time', () => {
+  const result = resultWithStep('a', { data: [{ name: 'A', s: '2026-07-21T09:00:00.000Z' }] });
+  const sections = [{
+    title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's' },
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /item 1 has no resolvable end time/);
+});

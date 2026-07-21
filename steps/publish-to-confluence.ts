@@ -295,6 +295,52 @@ function partitionByKey<T>(items: T[], keyFn: (item: T) => string): Array<{ key:
   return order.map(key => ({ key, items: map.get(key)! }));
 }
 
+function sanitizeMermaidText(value: unknown): string {
+  return String(value ?? '').replace(/:/g, '');
+}
+
+function resolveGanttEnd(item: unknown, gantt: GanttConfig, index: number, sectionTitle: string): string {
+  const endRaw = gantt.endField ? resolveFieldPath(item, gantt.endField) : undefined;
+  if (endRaw != null) return new Date(String(endRaw)).toISOString();
+  const startRaw = resolveFieldPath(item, gantt.startField);
+  const durationRaw = gantt.durationField ? resolveFieldPath(item, gantt.durationField) : undefined;
+  if (startRaw != null && durationRaw != null) {
+    return new Date(new Date(String(startRaw)).getTime() + Number(durationRaw)).toISOString();
+  }
+  throw new Error(`section "${sectionTitle}": item ${index + 1} has no resolvable end time (need endField or durationField)`);
+}
+
+function renderGanttSection(section: ReportSection, data: unknown): string {
+  const gantt = section.gantt;
+  if (!gantt || !gantt.taskField || !gantt.startField) {
+    throw new Error(`section "${section.title}": gantt layout requires gantt.taskField and gantt.startField`);
+  }
+  if (!Array.isArray(data)) {
+    throw new Error(`section "${section.title}": gantt layout requires array data`);
+  }
+
+  const bars = data.map((item, index) => {
+    const sectionKey = gantt.sectionField ? String(resolveFieldPath(item, gantt.sectionField) ?? '') : 'Activities';
+    const taskName = sanitizeMermaidText(resolveFieldPath(item, gantt.taskField));
+    const start = new Date(String(resolveFieldPath(item, gantt.startField))).toISOString();
+    const end = resolveGanttEnd(item, gantt, index, section.title);
+    return { sectionKey, line: `    ${taskName} : ${start}, ${end}` };
+  });
+
+  const groups = partitionByKey(bars, bar => bar.sectionKey);
+  const body = groups.flatMap(g => [`    section ${sanitizeMermaidText(g.key)}`, ...g.items.map(b => b.line)]);
+
+  const mermaid = [
+    'gantt',
+    '    dateFormat  YYYY-MM-DDTHH:mm:ss.SSS',
+    '    axisFormat  %H:%M:%S',
+    `    title ${sanitizeMermaidText(section.title)}`,
+    ...body,
+  ].join('\n');
+
+  return `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">mermaid</ac:parameter><ac:plain-text-body><![CDATA[\n${mermaid}\n]]></ac:plain-text-body></ac:structured-macro>`;
+}
+
 function renderSection(section: ReportSection, result: ConsolidatedResult): string {
   const stepEntry = result.steps.find(s => s.stepName === section.dataFrom);
   if (!stepEntry) {
@@ -329,6 +375,7 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
 
   const body = layout === 'table' ? renderTableSection(section, data)
     : layout === 'bullets' ? renderBulletsSection(section, data)
+    : layout === 'gantt' ? renderGanttSection(section, data)
     : renderKeyvalueSection(section, data);
 
   return `<h2>${escapeXhtml(section.title)}</h2>${body}`;
