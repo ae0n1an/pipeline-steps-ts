@@ -667,3 +667,16 @@ test('renderConfluenceStorageFormat throws when a gantt item has no resolvable e
   }];
   assert.throws(() => renderConfluenceStorageFormat(result, sections), /item 1 has no resolvable end time/);
 });
+
+test('renderConfluenceStorageFormat renders a type:"static" section with raw, unescaped html', () => {
+  const result = resultWithStep('a', {});
+  const sections = [{ type: 'static' as const, title: 'Release Notes', html: '<p>Deployed by CI.</p>' }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h2>Release Notes<\/h2><p>Deployed by CI\.<\/p>/);
+});
+
+test('renderConfluenceStorageFormat throws when a type:"static" section has no html', () => {
+  const result = resultWithStep('a', {});
+  const sections = [{ type: 'static' as const, title: 'Notes' }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /type "static" requires html/);
+});

@@ -342,6 +342,13 @@ function renderGanttSection(section: ReportSection, data: unknown): string {
 }
 
 function renderSection(section: ReportSection, result: ConsolidatedResult): string {
+  if (section.type === 'static') {
+    if (!section.html) {
+      throw new Error(`section "${section.title}": type "static" requires html`);
+    }
+    return `<h2>${escapeXhtml(section.title)}</h2>${section.html}`;
+  }
+
   const stepEntry = result.steps.find(s => s.stepName === section.dataFrom);
   if (!stepEntry) {
     throw new Error(`section "${section.title}": no step named "${section.dataFrom}" in the results`);
