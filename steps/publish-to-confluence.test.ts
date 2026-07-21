@@ -505,3 +505,31 @@ test('renderConfluenceStorageFormat "timestamp-aest" crosses the DST boundary co
   assert.match(html, /<td>2026-04-05 02:59:00 AEDT<\/td>/);
   assert.match(html, /<td>2026-04-05 02:01:00 AEST<\/td>/);
 });
+
+
+test('renderConfluenceStorageFormat formats format:"status" as a colored status lozenge macro', () => {
+  const result = resultWithStep('a', { data: { status: 'Succeeded' } });
+  const sections = [{
+    title: 'St', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Status', field: 'status', format: 'status' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(
+    html,
+    /<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Green<\/ac:parameter><ac:parameter ac:name="title">Succeeded<\/ac:parameter><\/ac:structured-macro>/,
+  );
+});
+
+test('renderConfluenceStorageFormat "status" maps Failed to Red and escapes an unrecognized value mapped to Grey', () => {
+  const result = resultWithStep('a', { data: { a: 'Failed', b: 'Weird<Value>' } });
+  const sections = [{
+    title: 'St', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [
+      { label: 'A', field: 'a', format: 'status' as const },
+      { label: 'B', field: 'b', format: 'status' as const },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /colour">Red<\/ac:parameter><ac:parameter ac:name="title">Failed/);
+  assert.match(html, /colour">Grey<\/ac:parameter><ac:parameter ac:name="title">Weird&lt;Value&gt;/);
+});

@@ -132,7 +132,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 // ---------- Field formatters --------------------------------------------------
 
-const KNOWN_FORMATS = new Set<string>(['duration-s', 'bytes', 'number', 'timestamp-aest']);
+const KNOWN_FORMATS = new Set<string>(['duration-s', 'bytes', 'number', 'timestamp-aest', 'status']);
 
 function formatBytes(bytes: number, decimals: number): string {
   const units = ['B', 'KB', 'MB', 'GB'] as const;
@@ -159,6 +159,20 @@ function formatTimestampAest(value: unknown): string {
   return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')} ${get('timeZoneName')}`;
 }
 
+
+const STATUS_LOZENGE_COLORS: Record<string, string> = {
+  Succeeded: 'Green',
+  Failed: 'Red',
+  InProgress: 'Blue',
+  Queued: 'Blue',
+};
+
+function formatStatusLozenge(value: unknown): string {
+  const text = value == null ? '' : String(value);
+  const colour = STATUS_LOZENGE_COLORS[text] ?? 'Grey';
+  return `<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">${colour}</ac:parameter><ac:parameter ac:name="title">${escapeXhtml(text)}</ac:parameter></ac:structured-macro>`;
+}
+
 function formatValue(value: unknown, format: string, decimals?: number): string {
   switch (format) {
     case 'duration-s':
@@ -169,6 +183,8 @@ function formatValue(value: unknown, format: string, decimals?: number): string 
       return Number(value).toFixed(decimals ?? 0);
     case 'timestamp-aest':
       return formatTimestampAest(value);
+    case 'status':
+      return formatStatusLozenge(value);
     default:
       // Unreachable in practice: callers only invoke this after checking
       // KNOWN_FORMATS. Kept as a safe fallback rather than throwing here,
