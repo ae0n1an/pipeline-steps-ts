@@ -281,6 +281,20 @@ function renderKeyvalueSection(section: ReportSection, data: unknown): string {
   return `<table><tbody>${rows}</tbody></table>`;
 }
 
+function partitionByKey<T>(items: T[], keyFn: (item: T) => string): Array<{ key: string; items: T[] }> {
+  const order: string[] = [];
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!map.has(key)) {
+      map.set(key, []);
+      order.push(key);
+    }
+    map.get(key)!.push(item);
+  }
+  return order.map(key => ({ key, items: map.get(key)! }));
+}
+
 function renderSection(section: ReportSection, result: ConsolidatedResult): string {
   const stepEntry = result.steps.find(s => s.stepName === section.dataFrom);
   if (!stepEntry) {
@@ -294,6 +308,25 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
   const data = section.arrayPath ? resolveFieldPath(sourceValue, section.arrayPath) : sourceValue;
 
   const layout = section.layout ?? 'keyvalue';
+
+  if (section.groupBy) {
+    if (layout !== 'table' && layout !== 'bullets') {
+      throw new Error(`section "${section.title}": groupBy is not supported on layout "${layout}"`);
+    }
+    if (!Array.isArray(data)) {
+      throw new Error(`section "${section.title}": groupBy requires array data`);
+    }
+    const groupBy = section.groupBy;
+    const groups = partitionByKey(data, item => String(resolveFieldPath(item, groupBy) ?? ''));
+    const body = groups
+      .map(({ key, items }) => {
+        const groupBody = layout === 'table' ? renderTableSection(section, items) : renderBulletsSection(section, items);
+        return `<h3>${escapeXhtml(key)}</h3>${groupBody}`;
+      })
+      .join('');
+    return `<h2>${escapeXhtml(section.title)}</h2>${body}`;
+  }
+
   const body = layout === 'table' ? renderTableSection(section, data)
     : layout === 'bullets' ? renderBulletsSection(section, data)
     : renderKeyvalueSection(section, data);

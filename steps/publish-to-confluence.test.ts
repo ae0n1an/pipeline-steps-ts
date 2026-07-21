@@ -533,3 +533,58 @@ test('renderConfluenceStorageFormat "status" maps Failed to Red and escapes an u
   assert.match(html, /colour">Red<\/ac:parameter><ac:parameter ac:name="title">Failed/);
   assert.match(html, /colour">Grey<\/ac:parameter><ac:parameter ac:name="title">Weird&lt;Value&gt;/);
 });
+
+test('renderConfluenceStorageFormat groupBy splits a table section into one sub-heading and table per group, in order of first appearance', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { parentRunId: 'p1', pipelineName: 'ChildA' },
+      { parentRunId: 'p1', pipelineName: 'ChildB' },
+      { parentRunId: 'p2', pipelineName: 'ChildC' },
+    ],
+  });
+  const sections = [{
+    title: 'Runs', dataFrom: 'a', source: 'data' as const, layout: 'table' as const, groupBy: 'parentRunId',
+    fields: [{ label: 'Pipeline', field: 'pipelineName' }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h2>Runs<\/h2>/);
+  assert.match(html, /<h3>p1<\/h3>/);
+  assert.match(html, /<h3>p2<\/h3>/);
+  assert.match(html, /<td>ChildA<\/td>/);
+  assert.match(html, /<td>ChildC<\/td>/);
+  const p1Index = html.indexOf('<h3>p1</h3>');
+  const p2Index = html.indexOf('<h3>p2</h3>');
+  const childCIndex = html.indexOf('<td>ChildC</td>');
+  assert.ok(p1Index < p2Index);
+  assert.ok(p2Index < childCIndex);
+});
+
+test('renderConfluenceStorageFormat groupBy also works with layout:"bullets"', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { parentRunId: 'p1', pipelineName: 'ChildA' },
+      { parentRunId: 'p2', pipelineName: 'ChildC' },
+    ],
+  });
+  const sections = [{
+    title: 'Runs', dataFrom: 'a', source: 'data' as const, layout: 'bullets' as const, groupBy: 'parentRunId',
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h3>p1<\/h3>/);
+  assert.match(html, /<h3>p2<\/h3>/);
+  assert.match(html, /<li>pipelineName: ChildA<\/li>/);
+});
+
+test('renderConfluenceStorageFormat throws when groupBy is combined with layout:"gantt"', () => {
+  const result = resultWithStep('a', { data: [{ x: 1 }] });
+  const sections = [{
+    title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const, groupBy: 'x',
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /groupBy is not supported on layout "gantt"/);
+});
+
+test('renderConfluenceStorageFormat throws when groupBy is used on non-array data', () => {
+  const result = resultWithStep('a', { data: { notAnArray: true } });
+  const sections = [{ title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'table' as const, groupBy: 'x' }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /groupBy requires array data/);
+});
