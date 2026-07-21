@@ -400,3 +400,72 @@ test('runAll renders custom sections end to end when config.sections is set', as
     fs.rmSync(outDir, { recursive: true, force: true });
   }
 });
+
+test('renderConfluenceStorageFormat formats a field with format:"duration-s"', () => {
+  const result = resultWithStep('a', { data: { durationMs: 4200 } });
+  const sections = [{
+    title: 'D', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Duration', field: 'durationMs', format: 'duration-s' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<th>Duration<\/th><td>4\.2s<\/td>/);
+});
+
+test('renderConfluenceStorageFormat "duration-s" respects a custom decimals count', () => {
+  const result = resultWithStep('a', { data: { durationMs: 4234 } });
+  const sections = [{
+    title: 'D', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Duration', field: 'durationMs', format: 'duration-s' as const, decimals: 0 }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>4s<\/td>/);
+});
+
+test('renderConfluenceStorageFormat formats a field with format:"bytes", auto-scaling to the largest unit', () => {
+  const result = resultWithStep('a', { data: { size: 4404019 } });
+  const sections = [{
+    title: 'S', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Size', field: 'size', format: 'bytes' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>4\.2 MB<\/td>/);
+});
+
+test('renderConfluenceStorageFormat "bytes" keeps small values in bytes', () => {
+  const result = resultWithStep('a', { data: { size: 512 } });
+  const sections = [{
+    title: 'S', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Size', field: 'size', format: 'bytes' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>512\.0 B<\/td>/);
+});
+
+test('renderConfluenceStorageFormat formats a field with format:"number" and decimals', () => {
+  const result = resultWithStep('a', { data: { ratio: 0.98765 } });
+  const sections = [{
+    title: 'N', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Ratio', field: 'ratio', format: 'number' as const, decimals: 2 }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>0\.99<\/td>/);
+});
+
+test('renderConfluenceStorageFormat throws for an unrecognized format value', () => {
+  const result = resultWithStep('a', { data: { x: 1 } });
+  const sections = [{
+    title: 'X', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'X', field: 'x', format: 'not-a-format' as any }],
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /unknown format "not-a-format" for field "x"/);
+});
+
+test('renderConfluenceStorageFormat leaves unformatted fields exactly as before', () => {
+  const result = resultWithStep('a', { data: { name: 'plain' } });
+  const sections = [{
+    title: 'P', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Name', field: 'name' }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>plain<\/td>/);
+});

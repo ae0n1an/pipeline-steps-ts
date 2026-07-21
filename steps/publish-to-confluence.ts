@@ -26,18 +26,46 @@ import { defineStep, type StepContext, type StepResult } from '../runner/types';
 
 // ---------- Config types ----------------------------------------------------
 
+export interface ReportField {
+  label: string;
+  field: string;
+  /** Omit to render the raw (escaped) value, exactly as today. */
+  format?: 'timestamp-aest' | 'duration-s' | 'bytes' | 'status' | 'number';
+  /** Decimal places for 'bytes' | 'number' | 'duration-s'. Default 1 (0 for 'number'). Ignored by 'timestamp-aest' and 'status'. */
+  decimals?: number;
+}
+
+export interface GanttConfig {
+  taskField: string;
+  startField: string;
+  /** Duration in ms; used only if endField is absent on an item. */
+  durationField?: string;
+  /** ISO timestamp; takes precedence over durationField if both resolve. */
+  endField?: string;
+  /** Dot-path; groups bars into separate Mermaid `section` blocks, in order of first appearance. */
+  sectionField?: string;
+}
+
 export interface ReportSection {
+  /** Default 'data'. 'static' ignores every other data-section field below except title/html. */
+  type?: 'data' | 'static';
   title: string;
-  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. */
-  dataFrom: string;
+  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. Required unless type: 'static'. */
+  dataFrom?: string;
   /** Which part of that step's entry to read. Default 'outputs'. */
   source?: 'outputs' | 'data';
   /** Dot-path within the selected source to the array or object to render. Omit to use the whole source value as-is. */
   arrayPath?: string;
   /** Default 'keyvalue'. */
-  layout?: 'table' | 'bullets' | 'keyvalue';
+  layout?: 'table' | 'bullets' | 'keyvalue' | 'gantt';
   /** Dot-paths (per item) to extract, with display labels. Omit to use every own-enumerable key. */
-  fields?: { label: string; field: string }[];
+  fields?: ReportField[];
+  /** Dot-path; splits array data into one <h3> sub-heading + table/bullets per distinct value, in order of first appearance. Only valid with layout 'table' or 'bullets'. */
+  groupBy?: string;
+  /** Required when layout is 'gantt'. */
+  gantt?: GanttConfig;
+  /** Required when type is 'static'. Raw Confluence storage-format content, inserted unescaped under <h2>{title}</h2>. */
+  html?: string;
 }
 
 export interface PublishToConfluenceConfig {
@@ -51,6 +79,8 @@ export interface PublishToConfluenceConfig {
   parentPageId?: string;
   /** Path to the JSON artifact produced by consolidate-run-results. */
   resultsPath: string;
+  /** Inserts Confluence's native Table of Contents macro as the very first element on the page. Default false. */
+  includeToc?: boolean;
   /** Optional custom report layout. Omitted/empty = today's exact behavior. */
   sections?: ReportSection[];
 }
@@ -100,6 +130,37 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// ---------- Field formatters --------------------------------------------------
+
+const KNOWN_FORMATS = new Set<string>(['duration-s', 'bytes', 'number']);
+
+function formatBytes(bytes: number, decimals: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'] as const;
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  return `${value.toFixed(decimals)} ${units[unitIndex]}`;
+}
+
+function formatValue(value: unknown, format: string, decimals?: number): string {
+  switch (format) {
+    case 'duration-s':
+      return `${(Number(value) / 1000).toFixed(decimals ?? 1)}s`;
+    case 'bytes':
+      return formatBytes(Number(value), decimals ?? 1);
+    case 'number':
+      return Number(value).toFixed(decimals ?? 0);
+    default:
+      // Unreachable in practice: callers only invoke this after checking
+      // KNOWN_FORMATS. Kept as a safe fallback rather than throwing here,
+      // since the caller already produces the user-facing error message.
+      return escapeXhtml(value);
+  }
+}
+
 // ---------- Nested cell rendering (object/array values inside a cell) --------
 
 function renderNestedValue(value: unknown): string {
@@ -119,24 +180,38 @@ function renderCell(value: unknown): string {
 
 // ---------- Section layout renderers -----------------------------------------
 
-function fieldEntries(
-  item: unknown,
-  fields: { label: string; field: string }[] | undefined,
-): Array<readonly [string, unknown]> {
-  if (fields) return fields.map(f => [f.label, resolveFieldPath(item, f.field)] as const);
-  if (isPlainObject(item)) return Object.entries(item);
+interface ResolvedField {
+  label: string;
+  value: unknown;
+  field: ReportField;
+}
+
+function fieldEntries(item: unknown, fields: ReportField[] | undefined): ResolvedField[] {
+  if (fields) return fields.map(f => ({ label: f.label, value: resolveFieldPath(item, f.field), field: f }));
+  if (isPlainObject(item)) return Object.entries(item).map(([label, value]) => ({ label, value, field: { label, field: label } }));
   return [];
+}
+
+function renderFieldValue(value: unknown, field: ReportField, sectionTitle: string): string {
+  if (Array.isArray(value) || isPlainObject(value)) return renderCell(value);
+  if (field.format) {
+    if (!KNOWN_FORMATS.has(field.format)) {
+      throw new Error(`section "${sectionTitle}": unknown format "${field.format}" for field "${field.field}"`);
+    }
+    return formatValue(value, field.format, field.decimals);
+  }
+  return escapeXhtml(value);
 }
 
 function renderTableSection(section: ReportSection, data: unknown): string {
   if (!Array.isArray(data)) {
     throw new Error(`section "${section.title}": table layout requires array data at "${section.arrayPath ?? '(root)'}"`);
   }
-  const fields = section.fields
+  const fields: ReportField[] = section.fields
     ?? (data.length > 0 && isPlainObject(data[0]) ? Object.keys(data[0] as object).map(k => ({ label: k, field: k })) : []);
   const headerRow = `<tr>${fields.map(f => `<th>${escapeXhtml(f.label)}</th>`).join('')}</tr>`;
   const bodyRows = data
-    .map(item => `<tr>${fields.map(f => `<td>${renderCell(resolveFieldPath(item, f.field))}</td>`).join('')}</tr>`)
+    .map(item => `<tr>${fields.map(f => `<td>${renderFieldValue(resolveFieldPath(item, f.field), f, section.title)}</td>`).join('')}</tr>`)
     .join('');
   return `<table><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>`;
 }
@@ -146,7 +221,7 @@ function renderBulletsSection(section: ReportSection, data: unknown): string {
     return data
       .map((item, i) => {
         const lines = fieldEntries(item, section.fields)
-          .map(([label, v]) => `<li>${escapeXhtml(label)}: ${renderCell(v)}</li>`)
+          .map(({ label, value, field }) => `<li>${escapeXhtml(label)}: ${renderFieldValue(value, field, section.title)}</li>`)
           .join('');
         return `<p><strong>Item ${i + 1}</strong></p><ul>${lines}</ul>`;
       })
@@ -154,7 +229,7 @@ function renderBulletsSection(section: ReportSection, data: unknown): string {
   }
   if (isPlainObject(data)) {
     const lines = fieldEntries(data, section.fields)
-      .map(([label, v]) => `<li>${escapeXhtml(label)}: ${renderCell(v)}</li>`)
+      .map(({ label, value, field }) => `<li>${escapeXhtml(label)}: ${renderFieldValue(value, field, section.title)}</li>`)
       .join('');
     return `<ul>${lines}</ul>`;
   }
@@ -169,7 +244,7 @@ function renderKeyvalueSection(section: ReportSection, data: unknown): string {
     throw new Error(`section "${section.title}": keyvalue layout requires object data`);
   }
   const rows = fieldEntries(data, section.fields)
-    .map(([label, v]) => `<tr><th>${escapeXhtml(label)}</th><td>${renderCell(v)}</td></tr>`)
+    .map(({ label, value, field }) => `<tr><th>${escapeXhtml(label)}</th><td>${renderFieldValue(value, field, section.title)}</td></tr>`)
     .join('');
   return `<table><tbody>${rows}</tbody></table>`;
 }
