@@ -390,7 +390,8 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
 
 // ---------- Content rendering ------------------------------------------------
 
-export function renderConfluenceStorageFormat(result: ConsolidatedResult, sections?: ReportSection[]): string {
+export function renderConfluenceStorageFormat(result: ConsolidatedResult, sections?: ReportSection[], includeToc?: boolean): string {
+  const toc = includeToc ? '<ac:structured-macro ac:name="toc" />' : '';
   const metadataRows = Object.entries(result.runMetadata)
     .map(([k, v]) => `<tr><th>${escapeXhtml(k)}</th><td>${escapeXhtml(v)}</td></tr>`)
     .join('');
@@ -406,7 +407,7 @@ ${metadataRows}
 
   if (sections && sections.length > 0) {
     const customSections = sections.map(section => renderSection(section, result)).join('\n');
-    return `${summaryTable}\n${customSections}`;
+    return `${toc}${summaryTable}\n${customSections}`;
   }
 
   const stepRows = result.steps
@@ -420,7 +421,7 @@ ${metadataRows}
     })
     .join('');
 
-  return `${summaryTable}
+  return `${toc}${summaryTable}
 <h2>Step Results</h2>
 <table><thead><tr><th>Step</th><th>Status</th><th>Outputs</th></tr></thead><tbody>
 ${stepRows}
@@ -538,7 +539,7 @@ export async function runAll(
   }
   const result: ConsolidatedResult = JSON.parse(fs.readFileSync(config.resultsPath, 'utf8'));
 
-  const content = renderConfluenceStorageFormat(result, config.sections);
+  const content = renderConfluenceStorageFormat(result, config.sections, config.includeToc);
   const contentPath = path.join(ctx.outDir, 'confluence-page-content.html');
   fs.writeFileSync(contentPath, content);
 

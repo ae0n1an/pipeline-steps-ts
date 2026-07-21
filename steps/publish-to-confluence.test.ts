@@ -680,3 +680,15 @@ test('renderConfluenceStorageFormat throws when a type:"static" section has no h
   const sections = [{ type: 'static' as const, title: 'Notes' }];
   assert.throws(() => renderConfluenceStorageFormat(result, sections), /type "static" requires html/);
 });
+
+test('renderConfluenceStorageFormat includes the Confluence TOC macro as the first element when includeToc is true', () => {
+  const result = resultWithStep('a', { outputs: {} });
+  const html = renderConfluenceStorageFormat(result, undefined, true);
+  assert.ok(html.startsWith('<ac:structured-macro ac:name="toc" />'));
+});
+
+test('renderConfluenceStorageFormat omits the TOC macro when includeToc is false or omitted', () => {
+  const result = resultWithStep('a', { outputs: {} });
+  const html = renderConfluenceStorageFormat(result);
+  assert.doesNotMatch(html, /ac:name="toc"/);
+});
