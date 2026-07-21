@@ -469,3 +469,39 @@ test('renderConfluenceStorageFormat leaves unformatted fields exactly as before'
   const html = renderConfluenceStorageFormat(result, sections);
   assert.match(html, /<td>plain<\/td>/);
 });
+
+test('renderConfluenceStorageFormat formats format:"timestamp-aest" in AEST (winter, UTC+10)', () => {
+  const result = resultWithStep('a', { data: { runStart: '2026-07-21T04:32:05.000Z' } });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Start', field: 'runStart', format: 'timestamp-aest' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>2026-07-21 14:32:05 AEST<\/td>/);
+});
+
+test('renderConfluenceStorageFormat formats format:"timestamp-aest" in AEDT (summer, UTC+11)', () => {
+  const result = resultWithStep('a', { data: { runStart: '2026-01-15T04:32:05.000Z' } });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Start', field: 'runStart', format: 'timestamp-aest' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>2026-01-15 15:32:05 AEDT<\/td>/);
+});
+
+test('renderConfluenceStorageFormat "timestamp-aest" crosses the DST boundary correctly', () => {
+  const result = resultWithStep('a', {
+    data: { before: '2026-04-04T15:59:00.000Z', after: '2026-04-04T16:01:00.000Z' },
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [
+      { label: 'Before', field: 'before', format: 'timestamp-aest' as const },
+      { label: 'After', field: 'after', format: 'timestamp-aest' as const },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>2026-04-05 02:59:00 AEDT<\/td>/);
+  assert.match(html, /<td>2026-04-05 02:01:00 AEST<\/td>/);
+});

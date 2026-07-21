@@ -132,7 +132,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 // ---------- Field formatters --------------------------------------------------
 
-const KNOWN_FORMATS = new Set<string>(['duration-s', 'bytes', 'number']);
+const KNOWN_FORMATS = new Set<string>(['duration-s', 'bytes', 'number', 'timestamp-aest']);
 
 function formatBytes(bytes: number, decimals: number): string {
   const units = ['B', 'KB', 'MB', 'GB'] as const;
@@ -145,6 +145,20 @@ function formatBytes(bytes: number, decimals: number): string {
   return `${value.toFixed(decimals)} ${units[unitIndex]}`;
 }
 
+function formatTimestampAest(value: unknown): string {
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Sydney',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+    timeZoneName: 'short',
+  }).formatToParts(date);
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')} ${get('timeZoneName')}`;
+}
+
 function formatValue(value: unknown, format: string, decimals?: number): string {
   switch (format) {
     case 'duration-s':
@@ -153,6 +167,8 @@ function formatValue(value: unknown, format: string, decimals?: number): string 
       return formatBytes(Number(value), decimals ?? 1);
     case 'number':
       return Number(value).toFixed(decimals ?? 0);
+    case 'timestamp-aest':
+      return formatTimestampAest(value);
     default:
       // Unreachable in practice: callers only invoke this after checking
       // KNOWN_FORMATS. Kept as a safe fallback rather than throwing here,
