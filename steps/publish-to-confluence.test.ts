@@ -692,3 +692,70 @@ test('renderConfluenceStorageFormat omits the TOC macro when includeToc is false
   const html = renderConfluenceStorageFormat(result);
   assert.doesNotMatch(html, /ac:name="toc"/);
 });
+
+test('runAll renders a full page combining format, groupBy, gantt, static sections, and includeToc', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'confluence-test-'));
+  try {
+    const filePath = path.join(outDir, 'run-results.json');
+    fs.writeFileSync(filePath, JSON.stringify({
+      runMetadata: { buildId: '1' },
+      generatedAt: 't',
+      steps: [{
+        stepName: 'extractAdfDetails',
+        ok: true,
+        outputs: {},
+        data: {
+          pipelineRuns: [
+            { pipelineName: 'ChildA', parentRunId: 'p1', status: 'Succeeded', runStart: '2026-07-21T04:00:00.000Z', durationMs: 4200 },
+            { pipelineName: 'ChildB', parentRunId: 'p2', status: 'Failed', runStart: '2026-07-21T04:05:00.000Z', durationMs: 1000 },
+          ],
+          activities: [
+            { activityName: 'CopyData', activityRunStart: '2026-07-21T04:00:00.000Z', durationMs: 30000, pipelineRunId: 'p1' },
+          ],
+        },
+      }],
+      summary: { totalSteps: 1, succeededCount: 1, failedCount: 0 },
+    }));
+    const fetchImpl: FetchLike = async url => {
+      if (url.includes('spaceKey=')) return { ok: true, status: 200, json: async () => ({ results: [] }), text: async () => '' };
+      return { ok: true, status: 200, json: async () => ({ id: 'new-1', _links: { webui: '/x' } }), text: async () => '' };
+    };
+    const config = {
+      baseUrl: 'https://example.atlassian.net/wiki', email: 'e', apiToken: 't',
+      spaceKey: 'ENG', pageTitle: 'Status', resultsPath: filePath,
+      includeToc: true,
+      sections: [
+        { type: 'static' as const, title: 'Overview', html: '<p>Nightly ADF run.</p>' },
+        {
+          title: 'ADF Pipeline Runs', dataFrom: 'extractAdfDetails', source: 'data' as const,
+          arrayPath: 'pipelineRuns', layout: 'table' as const, groupBy: 'parentRunId',
+          fields: [
+            { label: 'Pipeline', field: 'pipelineName' },
+            { label: 'Status', field: 'status', format: 'status' as const },
+            { label: 'Start', field: 'runStart', format: 'timestamp-aest' as const },
+            { label: 'Duration', field: 'durationMs', format: 'duration-s' as const },
+          ],
+        },
+        {
+          title: 'ADF Activity Timeline', dataFrom: 'extractAdfDetails', source: 'data' as const,
+          arrayPath: 'activities', layout: 'gantt' as const,
+          gantt: { taskField: 'activityName', startField: 'activityRunStart', durationField: 'durationMs', sectionField: 'pipelineRunId' },
+        },
+      ],
+    };
+    await runAll(config, fakeCtx(outDir), fetchImpl);
+    const content = fs.readFileSync(path.join(outDir, 'confluence-page-content.html'), 'utf8');
+    assert.ok(content.startsWith('<ac:structured-macro ac:name="toc" />'));
+    assert.match(content, /<h2>Overview<\/h2><p>Nightly ADF run\.<\/p>/);
+    assert.match(content, /<h3>p1<\/h3>/);
+    assert.match(content, /<h3>p2<\/h3>/);
+    assert.match(content, /colour">Green/);
+    assert.match(content, /colour">Red/);
+    assert.match(content, /2026-07-21 14:00:00 AEST/);
+    assert.match(content, /4\.2s/);
+    assert.match(content, /language">mermaid/);
+    assert.match(content, /CopyData : 2026-07-21T04:00:00\.000Z, 2026-07-21T04:00:30\.000Z/);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
