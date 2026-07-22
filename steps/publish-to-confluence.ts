@@ -367,7 +367,7 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
   const layout = section.layout ?? 'keyvalue';
 
   if (section.groupBy) {
-    if (layout !== 'table' && layout !== 'bullets') {
+    if (layout !== 'table' && layout !== 'bullets' && layout !== 'gantt') {
       throw new Error(`section "${section.title}": groupBy is not supported on layout "${layout}"`);
     }
     if (!Array.isArray(data)) {
@@ -377,7 +377,9 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
     const groups = partitionByKey(data, item => String(resolveFieldPath(item, groupBy) ?? ''));
     const body = groups
       .map(({ key, items }) => {
-        const groupBody = layout === 'table' ? renderTableSection(section, items) : renderBulletsSection(section, items);
+        const groupBody = layout === 'table' ? renderTableSection(section, items)
+          : layout === 'bullets' ? renderBulletsSection(section, items)
+          : renderGanttSection({ ...section, title: `${section.title} — ${key}` }, items);
         return `<h3>${escapeXhtml(key)}</h3>${groupBody}`;
       })
       .join('');
