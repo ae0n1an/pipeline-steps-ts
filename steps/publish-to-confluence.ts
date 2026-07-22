@@ -338,6 +338,20 @@ function resolveGanttEndDate(item: unknown, gantt: GanttConfig, index: number, s
   throw new Error(`section "${sectionTitle}": item ${index + 1} has no resolvable end time (need endField or durationField)`);
 }
 
+function computeGanttBars(gantt: GanttConfig, data: unknown[], sectionTitle: string): Array<{ sectionKey: string; line: string }> {
+  return data
+    .map((item, index) => {
+      const sectionKey = gantt.sectionField ? String(resolveFieldPath(item, gantt.sectionField) ?? '') : 'Activities';
+      const taskName = sanitizeMermaidText(resolveFieldPath(item, gantt.taskField));
+      const startDate = new Date(String(resolveFieldPath(item, gantt.startField)));
+      const endDate = resolveGanttEndDate(item, gantt, index, sectionTitle);
+      const durationMs = endDate.getTime() - startDate.getTime();
+      const line = `    ${taskName} : ${toMermaidTimestamp(startDate)}, ${toMermaidTimestamp(endDate)}`;
+      return { sectionKey, line, durationMs };
+    })
+    .filter(bar => gantt.minDurationS == null || bar.durationMs >= gantt.minDurationS * 1000);
+}
+
 function renderGanttSection(section: ReportSection, data: unknown): string {
   const gantt = section.gantt;
   if (!gantt || !gantt.taskField || !gantt.startField) {
@@ -347,17 +361,7 @@ function renderGanttSection(section: ReportSection, data: unknown): string {
     throw new Error(`section "${section.title}": gantt layout requires array data`);
   }
 
-  const bars = data
-    .map((item, index) => {
-      const sectionKey = gantt.sectionField ? String(resolveFieldPath(item, gantt.sectionField) ?? '') : 'Activities';
-      const taskName = sanitizeMermaidText(resolveFieldPath(item, gantt.taskField));
-      const startDate = new Date(String(resolveFieldPath(item, gantt.startField)));
-      const endDate = resolveGanttEndDate(item, gantt, index, section.title);
-      const durationMs = endDate.getTime() - startDate.getTime();
-      const line = `    ${taskName} : ${toMermaidTimestamp(startDate)}, ${toMermaidTimestamp(endDate)}`;
-      return { sectionKey, line, durationMs };
-    })
-    .filter(bar => gantt.minDurationS == null || bar.durationMs >= gantt.minDurationS * 1000);
+  const bars = computeGanttBars(gantt, data, section.title);
 
   const groups = partitionByKey(bars, bar => bar.sectionKey);
   const body = groups.flatMap(g => [`    section ${sanitizeMermaidText(g.key)}`, ...g.items.map(b => b.line)]);
@@ -464,6 +468,10 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
     const groups = partitionByKey(data, item => String(resolveFieldPath(item, groupBy) ?? ''));
     const body = groups
       .map(({ key, items }) => {
+        if (layout === 'gantt' && section.gantt?.taskField && section.gantt?.startField) {
+          const bars = computeGanttBars(section.gantt, items, section.title);
+          if (bars.length === 0) return '';
+        }
         const groupBody = layout === 'table' ? renderTableSection(section, items)
           : layout === 'bullets' ? renderBulletsSection(section, items)
           : renderGanttSection({ ...section, title: `${section.title} — ${key}` }, items);

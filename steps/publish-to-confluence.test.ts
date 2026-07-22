@@ -667,6 +667,23 @@ test('renderConfluenceStorageFormat groupBy on layout:"gantt" still applies gant
   assert.ok(child3Index > h3Run2, 'run-2 sections should come after run-2 heading');
 });
 
+test('renderConfluenceStorageFormat groupBy on layout:"gantt" omits a group whose bars are entirely filtered out by minDurationS', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { name: 'TinyA', s: '2026-07-21T09:00:00.000Z', durationMs: 500, topLevelRunId: 'run-1' },
+      { name: 'BigB', s: '2026-07-21T09:00:01.000Z', durationMs: 10000, topLevelRunId: 'run-2' },
+    ],
+  });
+  const sections = [{
+    title: 'Timeline', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const, groupBy: 'topLevelRunId',
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', minDurationS: 5 },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.doesNotMatch(html, /<h3>run-1<\/h3>/);
+  assert.match(html, /<h3>run-2<\/h3>/);
+  assert.match(html, /BigB :/);
+});
+
 test('renderConfluenceStorageFormat throws when groupBy is used on non-array data', () => {
   const result = resultWithStep('a', { data: { notAnArray: true } });
   const sections = [{ title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'table' as const, groupBy: 'x' }];
