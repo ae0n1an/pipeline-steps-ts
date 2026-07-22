@@ -99,7 +99,7 @@ test('fails when a passphrase-protected key is decrypted without a passphrase', 
     const config = {
       files: [{ name: 'fileC', inputPath: encryptedPath, privateKeyArmored: keyWithPass.privateKey }],
     };
-    await assert.rejects(() => step.run(config, fakeCtx(outDir)), /File entry 0 \("fileC"\) failed:[\s\S]*decryption failed/i);
+    await assert.rejects(async () => step.run(config, fakeCtx(outDir)), /File entry 0 \("fileC"\) failed:[\s\S]*decryption failed/i);
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }

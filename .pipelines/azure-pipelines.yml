@@ -197,6 +197,27 @@ stages:
               AZURE_CLIENT_SECRET: $(azureClientSecret)
               AZURE_TENANT_ID: $(azureTenantId)
 
+          # ---- Fetch GPG private key + passphrase from Azure Key Vault --
+          - task: AzureKeyVault@2
+            displayName: 'Fetch GPG private key from Key Vault'
+            inputs:
+              azureSubscription: 'my-service-connection'
+              KeyVaultName: 'my-keyvault'
+              SecretsFilter: 'gpg-private-key,gpg-passphrase'
+              RunAsPreJob: false
+
+          # ---- Step: GPG-decrypt the downloaded outbound result --------
+          - script: >
+              npx tsx runner/run-step.ts
+              --step steps/gpg-decrypt-file.ts
+              --config configs/gpg-decrypt-result.json
+              --name gpgDecryptResult
+            name: gpgDecryptResult
+            displayName: 'GPG decrypt outbound result with Key Vault key'
+            env:
+              GPG_PRIVATE_KEY: $(gpg-private-key)   # secrets are never auto-exposed to scripts
+              GPG_PASSPHRASE: $(gpg-passphrase)
+
           # ---- Step: verify the outbound result's row count -------------
           - script: >
               npx tsx runner/run-step.ts
