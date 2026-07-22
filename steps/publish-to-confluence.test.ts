@@ -400,3 +400,362 @@ test('runAll renders custom sections end to end when config.sections is set', as
     fs.rmSync(outDir, { recursive: true, force: true });
   }
 });
+
+test('renderConfluenceStorageFormat formats a field with format:"duration-s"', () => {
+  const result = resultWithStep('a', { data: { durationMs: 4200 } });
+  const sections = [{
+    title: 'D', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Duration', field: 'durationMs', format: 'duration-s' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<th>Duration<\/th><td>4\.2s<\/td>/);
+});
+
+test('renderConfluenceStorageFormat "duration-s" respects a custom decimals count', () => {
+  const result = resultWithStep('a', { data: { durationMs: 4234 } });
+  const sections = [{
+    title: 'D', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Duration', field: 'durationMs', format: 'duration-s' as const, decimals: 0 }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>4s<\/td>/);
+});
+
+test('renderConfluenceStorageFormat formats a field with format:"bytes", auto-scaling to the largest unit', () => {
+  const result = resultWithStep('a', { data: { size: 4404019 } });
+  const sections = [{
+    title: 'S', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Size', field: 'size', format: 'bytes' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>4\.2 MB<\/td>/);
+});
+
+test('renderConfluenceStorageFormat "bytes" keeps small values in bytes', () => {
+  const result = resultWithStep('a', { data: { size: 512 } });
+  const sections = [{
+    title: 'S', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Size', field: 'size', format: 'bytes' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>512\.0 B<\/td>/);
+});
+
+test('renderConfluenceStorageFormat formats a field with format:"number" and decimals', () => {
+  const result = resultWithStep('a', { data: { ratio: 0.98765 } });
+  const sections = [{
+    title: 'N', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Ratio', field: 'ratio', format: 'number' as const, decimals: 2 }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>0\.99<\/td>/);
+});
+
+test('renderConfluenceStorageFormat throws for an unrecognized format value', () => {
+  const result = resultWithStep('a', { data: { x: 1 } });
+  const sections = [{
+    title: 'X', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'X', field: 'x', format: 'not-a-format' as any }],
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /unknown format "not-a-format" for field "x"/);
+});
+
+test('renderConfluenceStorageFormat leaves unformatted fields exactly as before', () => {
+  const result = resultWithStep('a', { data: { name: 'plain' } });
+  const sections = [{
+    title: 'P', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Name', field: 'name' }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>plain<\/td>/);
+});
+
+test('renderConfluenceStorageFormat formats format:"timestamp-aest" in AEST (winter, UTC+10)', () => {
+  const result = resultWithStep('a', { data: { runStart: '2026-07-21T04:32:05.000Z' } });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Start', field: 'runStart', format: 'timestamp-aest' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>2026-07-21 14:32:05 AEST<\/td>/);
+});
+
+test('renderConfluenceStorageFormat formats format:"timestamp-aest" in AEDT (summer, UTC+11)', () => {
+  const result = resultWithStep('a', { data: { runStart: '2026-01-15T04:32:05.000Z' } });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Start', field: 'runStart', format: 'timestamp-aest' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>2026-01-15 15:32:05 AEDT<\/td>/);
+});
+
+test('renderConfluenceStorageFormat "timestamp-aest" crosses the DST boundary correctly', () => {
+  const result = resultWithStep('a', {
+    data: { before: '2026-04-04T15:59:00.000Z', after: '2026-04-04T16:01:00.000Z' },
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [
+      { label: 'Before', field: 'before', format: 'timestamp-aest' as const },
+      { label: 'After', field: 'after', format: 'timestamp-aest' as const },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>2026-04-05 02:59:00 AEDT<\/td>/);
+  assert.match(html, /<td>2026-04-05 02:01:00 AEST<\/td>/);
+});
+
+
+test('renderConfluenceStorageFormat formats format:"status" as a colored status lozenge macro', () => {
+  const result = resultWithStep('a', { data: { status: 'Succeeded' } });
+  const sections = [{
+    title: 'St', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [{ label: 'Status', field: 'status', format: 'status' as const }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(
+    html,
+    /<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Green<\/ac:parameter><ac:parameter ac:name="title">Succeeded<\/ac:parameter><\/ac:structured-macro>/,
+  );
+});
+
+test('renderConfluenceStorageFormat "status" maps Failed to Red and escapes an unrecognized value mapped to Grey', () => {
+  const result = resultWithStep('a', { data: { a: 'Failed', b: 'Weird<Value>' } });
+  const sections = [{
+    title: 'St', dataFrom: 'a', source: 'data' as const, layout: 'keyvalue' as const,
+    fields: [
+      { label: 'A', field: 'a', format: 'status' as const },
+      { label: 'B', field: 'b', format: 'status' as const },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /colour">Red<\/ac:parameter><ac:parameter ac:name="title">Failed/);
+  assert.match(html, /colour">Grey<\/ac:parameter><ac:parameter ac:name="title">Weird&lt;Value&gt;/);
+});
+
+test('renderConfluenceStorageFormat groupBy splits a table section into one sub-heading and table per group, in order of first appearance', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { parentRunId: 'p1', pipelineName: 'ChildA' },
+      { parentRunId: 'p1', pipelineName: 'ChildB' },
+      { parentRunId: 'p2', pipelineName: 'ChildC' },
+    ],
+  });
+  const sections = [{
+    title: 'Runs', dataFrom: 'a', source: 'data' as const, layout: 'table' as const, groupBy: 'parentRunId',
+    fields: [{ label: 'Pipeline', field: 'pipelineName' }],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h2>Runs<\/h2>/);
+  assert.match(html, /<h3>p1<\/h3>/);
+  assert.match(html, /<h3>p2<\/h3>/);
+  assert.match(html, /<td>ChildA<\/td>/);
+  assert.match(html, /<td>ChildC<\/td>/);
+  const p1Index = html.indexOf('<h3>p1</h3>');
+  const p2Index = html.indexOf('<h3>p2</h3>');
+  const childCIndex = html.indexOf('<td>ChildC</td>');
+  assert.ok(p1Index < p2Index);
+  assert.ok(p2Index < childCIndex);
+});
+
+test('renderConfluenceStorageFormat groupBy also works with layout:"bullets"', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { parentRunId: 'p1', pipelineName: 'ChildA' },
+      { parentRunId: 'p2', pipelineName: 'ChildC' },
+    ],
+  });
+  const sections = [{
+    title: 'Runs', dataFrom: 'a', source: 'data' as const, layout: 'bullets' as const, groupBy: 'parentRunId',
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h3>p1<\/h3>/);
+  assert.match(html, /<h3>p2<\/h3>/);
+  assert.match(html, /<li>pipelineName: ChildA<\/li>/);
+});
+
+test('renderConfluenceStorageFormat throws when groupBy is combined with layout:"gantt"', () => {
+  const result = resultWithStep('a', { data: [{ x: 1 }] });
+  const sections = [{
+    title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const, groupBy: 'x',
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /groupBy is not supported on layout "gantt"/);
+});
+
+test('renderConfluenceStorageFormat throws when groupBy is used on non-array data', () => {
+  const result = resultWithStep('a', { data: { notAnArray: true } });
+  const sections = [{ title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'table' as const, groupBy: 'x' }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /groupBy requires array data/);
+});
+
+test('renderConfluenceStorageFormat renders a gantt layout as a Mermaid code-block macro using durationField', () => {
+  const result = resultWithStep('a', {
+    data: [{ activityName: 'CopyData', activityRunStart: '2026-07-21T09:00:00.000Z', durationMs: 30000 }],
+  });
+  const sections = [{
+    title: 'Timeline', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'activityName', startField: 'activityRunStart', durationField: 'durationMs' },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">mermaid<\/ac:parameter>/);
+  assert.match(html, /gantt/);
+  assert.match(html, /section Activities/);
+  assert.match(html, /CopyData : 2026-07-21T09:00:00\.000Z, 2026-07-21T09:00:30\.000Z/);
+});
+
+test('renderConfluenceStorageFormat gantt prefers endField over durationField when both resolve', () => {
+  const result = resultWithStep('a', {
+    data: [{ name: 'A', s: '2026-07-21T09:00:00.000Z', e: '2026-07-21T09:05:00.000Z', durationMs: 999 }],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', endField: 'e', durationField: 'durationMs' },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /A : 2026-07-21T09:00:00\.000Z, 2026-07-21T09:05:00\.000Z/);
+});
+
+test('renderConfluenceStorageFormat gantt groups bars into Mermaid sections via sectionField, in order of first appearance', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { name: 'A1', s: '2026-07-21T09:00:00.000Z', durationMs: 1000, pipelineRunId: 'run-1' },
+      { name: 'B1', s: '2026-07-21T09:00:01.000Z', durationMs: 1000, pipelineRunId: 'run-2' },
+      { name: 'A2', s: '2026-07-21T09:00:02.000Z', durationMs: 1000, pipelineRunId: 'run-1' },
+    ],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', sectionField: 'pipelineRunId' },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  const run1Index = html.indexOf('section run-1');
+  const run2Index = html.indexOf('section run-2');
+  const a1Index = html.indexOf('A1 :');
+  const a2Index = html.indexOf('A2 :');
+  const b1Index = html.indexOf('B1 :');
+  assert.ok(run1Index < a1Index);
+  assert.ok(a1Index < a2Index);
+  assert.ok(a2Index < run2Index);
+  assert.ok(run2Index < b1Index);
+});
+
+test('renderConfluenceStorageFormat gantt strips colons from task names (Mermaid field separator)', () => {
+  const result = resultWithStep('a', {
+    data: [{ name: 'Copy: Orders', s: '2026-07-21T09:00:00.000Z', durationMs: 1000 }],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs' },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /Copy Orders : /);
+  assert.doesNotMatch(html, /Copy: Orders/);
+});
+
+test('renderConfluenceStorageFormat throws when gantt layout is missing gantt.taskField/startField', () => {
+  const result = resultWithStep('a', { data: [{ x: 1 }] });
+  const sections = [{ title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /gantt layout requires gantt\.taskField and gantt\.startField/);
+});
+
+test('renderConfluenceStorageFormat throws when a gantt item has no resolvable end time', () => {
+  const result = resultWithStep('a', { data: [{ name: 'A', s: '2026-07-21T09:00:00.000Z' }] });
+  const sections = [{
+    title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's' },
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /item 1 has no resolvable end time/);
+});
+
+test('renderConfluenceStorageFormat renders a type:"static" section with raw, unescaped html', () => {
+  const result = resultWithStep('a', {});
+  const sections = [{ type: 'static' as const, title: 'Release Notes', html: '<p>Deployed by CI.</p>' }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h2>Release Notes<\/h2><p>Deployed by CI\.<\/p>/);
+});
+
+test('renderConfluenceStorageFormat throws when a type:"static" section has no html', () => {
+  const result = resultWithStep('a', {});
+  const sections = [{ type: 'static' as const, title: 'Notes' }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /type "static" requires html/);
+});
+
+test('renderConfluenceStorageFormat includes the Confluence TOC macro as the first element when includeToc is true', () => {
+  const result = resultWithStep('a', { outputs: {} });
+  const html = renderConfluenceStorageFormat(result, undefined, true);
+  assert.ok(html.startsWith('<ac:structured-macro ac:name="toc" />'));
+});
+
+test('renderConfluenceStorageFormat omits the TOC macro when includeToc is false or omitted', () => {
+  const result = resultWithStep('a', { outputs: {} });
+  const html = renderConfluenceStorageFormat(result);
+  assert.doesNotMatch(html, /ac:name="toc"/);
+});
+
+test('runAll renders a full page combining format, groupBy, gantt, static sections, and includeToc', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'confluence-test-'));
+  try {
+    const filePath = path.join(outDir, 'run-results.json');
+    fs.writeFileSync(filePath, JSON.stringify({
+      runMetadata: { buildId: '1' },
+      generatedAt: 't',
+      steps: [{
+        stepName: 'extractAdfDetails',
+        ok: true,
+        outputs: {},
+        data: {
+          pipelineRuns: [
+            { pipelineName: 'ChildA', parentRunId: 'p1', status: 'Succeeded', runStart: '2026-07-21T04:00:00.000Z', durationMs: 4200 },
+            { pipelineName: 'ChildB', parentRunId: 'p2', status: 'Failed', runStart: '2026-07-21T04:05:00.000Z', durationMs: 1000 },
+          ],
+          activities: [
+            { activityName: 'CopyData', activityRunStart: '2026-07-21T04:00:00.000Z', durationMs: 30000, pipelineRunId: 'p1' },
+          ],
+        },
+      }],
+      summary: { totalSteps: 1, succeededCount: 1, failedCount: 0 },
+    }));
+    const fetchImpl: FetchLike = async url => {
+      if (url.includes('spaceKey=')) return { ok: true, status: 200, json: async () => ({ results: [] }), text: async () => '' };
+      return { ok: true, status: 200, json: async () => ({ id: 'new-1', _links: { webui: '/x' } }), text: async () => '' };
+    };
+    const config = {
+      baseUrl: 'https://example.atlassian.net/wiki', email: 'e', apiToken: 't',
+      spaceKey: 'ENG', pageTitle: 'Status', resultsPath: filePath,
+      includeToc: true,
+      sections: [
+        { type: 'static' as const, title: 'Overview', html: '<p>Nightly ADF run.</p>' },
+        {
+          title: 'ADF Pipeline Runs', dataFrom: 'extractAdfDetails', source: 'data' as const,
+          arrayPath: 'pipelineRuns', layout: 'table' as const, groupBy: 'parentRunId',
+          fields: [
+            { label: 'Pipeline', field: 'pipelineName' },
+            { label: 'Status', field: 'status', format: 'status' as const },
+            { label: 'Start', field: 'runStart', format: 'timestamp-aest' as const },
+            { label: 'Duration', field: 'durationMs', format: 'duration-s' as const },
+          ],
+        },
+        {
+          title: 'ADF Activity Timeline', dataFrom: 'extractAdfDetails', source: 'data' as const,
+          arrayPath: 'activities', layout: 'gantt' as const,
+          gantt: { taskField: 'activityName', startField: 'activityRunStart', durationField: 'durationMs', sectionField: 'pipelineRunId' },
+        },
+      ],
+    };
+    await runAll(config, fakeCtx(outDir), fetchImpl);
+    const content = fs.readFileSync(path.join(outDir, 'confluence-page-content.html'), 'utf8');
+    assert.ok(content.startsWith('<ac:structured-macro ac:name="toc" />'));
+    assert.match(content, /<h2>Overview<\/h2><p>Nightly ADF run\.<\/p>/);
+    assert.match(content, /<h3>p1<\/h3>/);
+    assert.match(content, /<h3>p2<\/h3>/);
+    assert.match(content, /colour">Green/);
+    assert.match(content, /colour">Red/);
+    assert.match(content, /2026-07-21 14:00:00 AEST/);
+    assert.match(content, /4\.2s/);
+    assert.match(content, /language">mermaid/);
+    assert.match(content, /CopyData : 2026-07-21T04:00:00\.000Z, 2026-07-21T04:00:30\.000Z/);
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});

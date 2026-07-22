@@ -5,6 +5,7 @@
   "spaceKey": "ENG",
   "pageTitle": "Pipeline Run Status",
   "resultsPath": "{{env.PIPELINE_WORKSPACE}}/step-output-final/consolidateResults/run-results.json",
+  "includeToc": true,
   "sections": [
     {
       "title": "ADF Pipeline Runs",
@@ -12,12 +13,13 @@
       "source": "data",
       "arrayPath": "pipelineRuns",
       "layout": "table",
+      "groupBy": "parentRunId",
       "fields": [
         { "label": "Pipeline", "field": "pipelineName" },
         { "label": "Run ID", "field": "runId" },
-        { "label": "Status", "field": "status" },
-        { "label": "Start", "field": "runStart" },
-        { "label": "Duration (ms)", "field": "durationMs" }
+        { "label": "Status", "field": "status", "format": "status" },
+        { "label": "Start (AEST)", "field": "runStart", "format": "timestamp-aest" },
+        { "label": "Duration", "field": "durationMs", "format": "duration-s" }
       ]
     },
     {
@@ -26,13 +28,27 @@
       "source": "data",
       "arrayPath": "activities",
       "layout": "table",
+      "groupBy": "pipelineRunId",
       "fields": [
         { "label": "Activity", "field": "activityName" },
         { "label": "Activity ID", "field": "activityId" },
-        { "label": "Status", "field": "status" },
-        { "label": "Start", "field": "activityRunStart" },
-        { "label": "Duration (ms)", "field": "durationMs" }
+        { "label": "Status", "field": "status", "format": "status" },
+        { "label": "Start (AEST)", "field": "activityRunStart", "format": "timestamp-aest" },
+        { "label": "Duration", "field": "durationMs", "format": "duration-s" }
       ]
+    },
+    {
+      "title": "ADF Activity Timeline",
+      "dataFrom": "extractAdfDetails",
+      "source": "data",
+      "arrayPath": "activities",
+      "layout": "gantt",
+      "gantt": {
+        "taskField": "activityName",
+        "startField": "activityRunStart",
+        "durationField": "durationMs",
+        "sectionField": "pipelineRunId"
+      }
     },
     {
       "title": "Business Logic Validation",
