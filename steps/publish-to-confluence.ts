@@ -46,11 +46,31 @@ export interface GanttConfig {
   sectionField?: string;
 }
 
+export interface JoinSource {
+  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. */
+  dataFrom: string;
+  /** Which part of that step's entry to read. Default 'outputs'. */
+  source?: 'outputs' | 'data';
+  /** Dot-path within the selected source to the array to join from. */
+  arrayPath?: string;
+  /**
+   * Dot-path (per item). When set, items from this source merge into a
+   * row shared with any other source's item resolving the same key
+   * value (outer-join: a key present in only one source still gets a
+   * row, with every other source's columns blank). When omitted, every
+   * item from this source becomes its own independent row, with every
+   * other source's columns blank.
+   */
+  keyField?: string;
+  /** Dot-paths (per item) to extract, with display labels — same shape as every other section's `fields`. */
+  fields: ReportField[];
+}
+
 export interface ReportSection {
-  /** Default 'data'. 'static' ignores every other data-section field below except title/html. */
-  type?: 'data' | 'static';
+  /** Default 'data'. 'static' ignores every other data-section field below except title/html. 'join' ignores dataFrom/source/arrayPath/layout/fields/groupBy/gantt — see `join` below. */
+  type?: 'data' | 'static' | 'join';
   title: string;
-  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. Required unless type: 'static'. */
+  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. Required unless type: 'static' or 'join'. */
   dataFrom?: string;
   /** Which part of that step's entry to read. Default 'outputs'. */
   source?: 'outputs' | 'data';
@@ -66,6 +86,8 @@ export interface ReportSection {
   gantt?: GanttConfig;
   /** Required when type is 'static'. Raw Confluence storage-format content, inserted unescaped under <h2>{title}</h2>. */
   html?: string;
+  /** Required when type is 'join'. Each source's array data (independently resolved the same way a plain section's dataFrom/source/arrayPath is) contributes columns and/or merges into shared rows. */
+  join?: JoinSource[];
 }
 
 export interface PublishToConfluenceConfig {
@@ -364,12 +386,61 @@ function resolveSectionData(
   return arrayPath ? resolveFieldPath(sourceValue, arrayPath) : sourceValue;
 }
 
+function renderJoinSection(section: ReportSection, result: ConsolidatedResult): string {
+  const sources = section.join;
+  if (!sources || sources.length === 0) {
+    throw new Error(`section "${section.title}": type "join" requires a non-empty "join" array`);
+  }
+
+  const columns = sources.flatMap((src, si) => src.fields.map((f, fi) => ({ label: f.label, key: `${si}.${fi}` })));
+
+  const keyedRows = new Map<string, Map<string, string>>();
+  const keyOrder: string[] = [];
+  const unkeyedRows: Map<string, string>[] = [];
+
+  sources.forEach((src, si) => {
+    const data = resolveSectionData(src.dataFrom, src.source, src.arrayPath, result, section.title);
+    if (!Array.isArray(data)) {
+      throw new Error(`section "${section.title}": join source "${src.dataFrom}" requires array data`);
+    }
+    data.forEach(item => {
+      const cells = new Map<string, string>();
+      src.fields.forEach((f, fi) => {
+        cells.set(`${si}.${fi}`, renderFieldValue(resolveFieldPath(item, f.field), f, section.title));
+      });
+      if (src.keyField) {
+        const key = String(resolveFieldPath(item, src.keyField) ?? '');
+        const existing = keyedRows.get(key);
+        if (existing) {
+          for (const [k, v] of cells) existing.set(k, v);
+        } else {
+          keyedRows.set(key, cells);
+          keyOrder.push(key);
+        }
+      } else {
+        unkeyedRows.push(cells);
+      }
+    });
+  });
+
+  const allRows = [...keyOrder.map(k => keyedRows.get(k)!), ...unkeyedRows];
+
+  const headerRow = `<tr>${columns.map(c => `<th>${escapeXhtml(c.label)}</th>`).join('')}</tr>`;
+  const bodyRows = allRows
+    .map(cells => `<tr>${columns.map(c => `<td>${cells.get(c.key) ?? ''}</td>`).join('')}</tr>`)
+    .join('');
+  return `<table><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>`;
+}
+
 function renderSection(section: ReportSection, result: ConsolidatedResult): string {
   if (section.type === 'static') {
     if (!section.html) {
       throw new Error(`section "${section.title}": type "static" requires html`);
     }
     return `<h2>${escapeXhtml(section.title)}</h2>${section.html}`;
+  }
+  if (section.type === 'join') {
+    return `<h2>${escapeXhtml(section.title)}</h2>${renderJoinSection(section, result)}`;
   }
 
   const data = resolveSectionData(section.dataFrom, section.source, section.arrayPath, result, section.title);

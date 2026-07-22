@@ -253,6 +253,22 @@ function resultWithStep(
   };
 }
 
+function resultWithSteps(
+  entries: Array<{ stepName: string; outputs?: Record<string, unknown>; data?: unknown }>,
+) {
+  return {
+    runMetadata: {},
+    generatedAt: 't',
+    steps: entries.map(e => ({
+      stepName: e.stepName,
+      ok: true,
+      outputs: e.outputs ?? {},
+      data: e.data,
+    })),
+    summary: { totalSteps: entries.length, succeededCount: entries.length, failedCount: 0 },
+  };
+}
+
 test('renderConfluenceStorageFormat renders a custom table section from embedded step data', () => {
   const result = resultWithStep('extractAdfDetails', {
     data: { pipelineRuns: [{ pipelineName: 'CopyOrders', runId: 'run-1', status: 'Succeeded', durationMs: 5000 }] },
@@ -826,4 +842,102 @@ test('runAll renders a full page combining format, groupBy, gantt, static sectio
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }
+});
+
+test('renderConfluenceStorageFormat join merges rows from two sources sharing a keyField, in order of first appearance', () => {
+  const result = resultWithSteps([
+    { stepName: 'inbound', data: [{ fileId: 'f1', path: 'a.csv', rows: 10 }, { fileId: 'f2', path: 'b.csv', rows: 20 }] },
+    { stepName: 'outbound', data: [{ fileId: 'f2', size: 200 }, { fileId: 'f1', size: 100 }] },
+  ]);
+  const sections = [{
+    title: 'Files', type: 'join' as const,
+    join: [
+      { dataFrom: 'inbound', source: 'data' as const, keyField: 'fileId', fields: [{ label: 'Path', field: 'path' }, { label: 'Rows', field: 'rows' }] },
+      { dataFrom: 'outbound', source: 'data' as const, keyField: 'fileId', fields: [{ label: 'Size', field: 'size' }] },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h2>Files<\/h2>/);
+  assert.match(html, /<th>Path<\/th><th>Rows<\/th><th>Size<\/th>/);
+  assert.match(html, /<td>a\.csv<\/td><td>10<\/td><td>100<\/td>/);
+  assert.match(html, /<td>b\.csv<\/td><td>20<\/td><td>200<\/td>/);
+  const f1Index = html.indexOf('a.csv');
+  const f2Index = html.indexOf('b.csv');
+  assert.ok(f1Index < f2Index);
+});
+
+test('renderConfluenceStorageFormat join produces independent rows for sources with no keyField (union)', () => {
+  const result = resultWithSteps([
+    { stepName: 'inbound', data: [{ path: 'a.csv', rows: 10 }] },
+    { stepName: 'outbound', data: [{ path: 'result.json', rows: 5 }] },
+  ]);
+  const sections = [{
+    title: 'Files', type: 'join' as const,
+    join: [
+      { dataFrom: 'inbound', source: 'data' as const, fields: [{ label: 'Inbound Path', field: 'path' }, { label: 'Inbound Rows', field: 'rows' }] },
+      { dataFrom: 'outbound', source: 'data' as const, fields: [{ label: 'Outbound Path', field: 'path' }, { label: 'Outbound Rows', field: 'rows' }] },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>a\.csv<\/td><td>10<\/td><td><\/td><td><\/td>/);
+  assert.match(html, /<td><\/td><td><\/td><td>result\.json<\/td><td>5<\/td>/);
+});
+
+test('renderConfluenceStorageFormat join allows mixing a keyed source with an unkeyed source in the same section', () => {
+  const result = resultWithSteps([
+    { stepName: 'keyed', data: [{ id: 'k1', name: 'Alpha' }] },
+    { stepName: 'unkeyed', data: [{ note: 'extra row' }] },
+  ]);
+  const sections = [{
+    title: 'Mixed', type: 'join' as const,
+    join: [
+      { dataFrom: 'keyed', source: 'data' as const, keyField: 'id', fields: [{ label: 'Name', field: 'name' }] },
+      { dataFrom: 'unkeyed', source: 'data' as const, fields: [{ label: 'Note', field: 'note' }] },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>Alpha<\/td><td><\/td>/);
+  assert.match(html, /<td><\/td><td>extra row<\/td>/);
+});
+
+test("renderConfluenceStorageFormat join keeps two sources' same-labeled columns distinct (no collision)", () => {
+  const result = resultWithSteps([
+    { stepName: 'a', data: [{ path: 'in.csv' }] },
+    { stepName: 'b', data: [{ path: 'out.json' }] },
+  ]);
+  const sections = [{
+    title: 'T', type: 'join' as const,
+    join: [
+      { dataFrom: 'a', source: 'data' as const, fields: [{ label: 'Path', field: 'path' }] },
+      { dataFrom: 'b', source: 'data' as const, fields: [{ label: 'Path', field: 'path' }] },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<th>Path<\/th><th>Path<\/th>/);
+  assert.match(html, /<td>in\.csv<\/td><td><\/td>/);
+  assert.match(html, /<td><\/td><td>out\.json<\/td>/);
+});
+
+test('renderConfluenceStorageFormat throws when type:"join" has no join array', () => {
+  const result = resultWithSteps([{ stepName: 'a' }]);
+  const sections = [{ title: 'T', type: 'join' as const }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /type "join" requires a non-empty "join" array/);
+});
+
+test('renderConfluenceStorageFormat throws when a join source names a step not present in the results', () => {
+  const result = resultWithSteps([{ stepName: 'a', data: [] }]);
+  const sections = [{
+    title: 'T', type: 'join' as const,
+    join: [{ dataFrom: 'missingStep', source: 'data' as const, fields: [{ label: 'X', field: 'x' }] }],
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /no step named "missingStep"/);
+});
+
+test('renderConfluenceStorageFormat throws when a join source resolves to non-array data', () => {
+  const result = resultWithSteps([{ stepName: 'a', data: { notAnArray: true } }]);
+  const sections = [{
+    title: 'T', type: 'join' as const,
+    join: [{ dataFrom: 'a', source: 'data' as const, fields: [{ label: 'X', field: 'x' }] }],
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /join source "a" requires array data/);
 });
