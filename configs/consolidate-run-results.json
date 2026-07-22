@@ -14,7 +14,9 @@
     "validateBusinessLogic"
   ],
   "embedArtifacts": {
-    "extractAdfDetails": "adf-run-details.json"
+    "extractAdfDetails": "adf-run-details.json",
+    "uploadPayload": "upload-summary.json",
+    "verifyResult": "verify-summary.json"
   },
   "runMetadata": {
     "buildId": "{{env.BUILD_BUILDID}}",

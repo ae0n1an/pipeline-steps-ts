@@ -47,7 +47,22 @@
         "taskField": "activityName",
         "startField": "activityRunStart",
         "durationField": "durationMs",
-        "sectionField": "pipelineRunId"
+        "sectionField": "pipelineRunId",
+        "minDurationS": 5
+      }
+    },
+    {
+      "title": "ADF Activity Timeline by Type",
+      "dataFrom": "extractAdfDetails",
+      "source": "data",
+      "arrayPath": "activities",
+      "layout": "gantt",
+      "groupBy": "activityType",
+      "gantt": {
+        "taskField": "activityName",
+        "startField": "activityRunStart",
+        "durationField": "durationMs",
+        "minDurationS": 5
       }
     },
     {
@@ -99,6 +114,32 @@
       "layout": "keyvalue",
       "fields": [
         { "label": "Rows", "field": "outboundResult_rowCount" }
+      ]
+    },
+    {
+      "title": "Inbound / Outbound Files",
+      "type": "join",
+      "join": [
+        {
+          "dataFrom": "uploadPayload",
+          "source": "data",
+          "keyField": "name",
+          "fields": [
+            { "label": "Inbound Blob Path", "field": "blobPath" },
+            { "label": "Inbound Size", "field": "sizeBytes", "format": "bytes" },
+            { "label": "Upload Status", "field": "status", "format": "status" }
+          ]
+        },
+        {
+          "dataFrom": "verifyResult",
+          "source": "data",
+          "keyField": "name",
+          "fields": [
+            { "label": "Outbound Blob Path", "field": "blobPath" },
+            { "label": "Outbound Size", "field": "sizeBytes", "format": "bytes" },
+            { "label": "Verify Status", "field": "status", "format": "status" }
+          ]
+        }
       ]
     }
   ]
