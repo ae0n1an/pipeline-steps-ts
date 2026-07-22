@@ -54,6 +54,52 @@
       "title": "Business Logic Validation",
       "dataFrom": "validateBusinessLogic",
       "layout": "bullets"
+    },
+    {
+      "title": "Generated CSV",
+      "dataFrom": "genUsersCsv",
+      "layout": "keyvalue",
+      "fields": [
+        { "label": "Path", "field": "usersCsv_csvPath" },
+        { "label": "Rows", "field": "usersCsv_rowCount" },
+        { "label": "Size", "field": "usersCsv_sizeBytes", "format": "bytes" }
+      ]
+    },
+    {
+      "title": "Encrypted Payload",
+      "dataFrom": "gpgEncryptCsv",
+      "layout": "keyvalue",
+      "fields": [
+        { "label": "Path", "field": "usersCsvGpg_encryptedPath" },
+        { "label": "Size", "field": "usersCsvGpg_sizeBytes", "format": "bytes" }
+      ]
+    },
+    {
+      "title": "Uploaded Blob",
+      "dataFrom": "uploadPayload",
+      "layout": "keyvalue",
+      "fields": [
+        { "label": "Blob Path", "field": "usersCsvGpg_blobPath" },
+        { "label": "Size", "field": "usersCsvGpg_sizeBytes", "format": "bytes" },
+        { "label": "Status", "field": "usersCsvGpg_status", "format": "status" }
+      ]
+    },
+    {
+      "title": "Decrypted Output",
+      "dataFrom": "gpgDecryptResult",
+      "layout": "keyvalue",
+      "fields": [
+        { "label": "Path", "field": "result_decryptedPath" },
+        { "label": "Size", "field": "result_sizeBytes", "format": "bytes" }
+      ]
+    },
+    {
+      "title": "Output Row Count",
+      "dataFrom": "verifyRowCount",
+      "layout": "keyvalue",
+      "fields": [
+        { "label": "Rows", "field": "outboundResult_rowCount" }
+      ]
     }
   ]
 }
