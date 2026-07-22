@@ -941,3 +941,39 @@ test('renderConfluenceStorageFormat throws when a join source resolves to non-ar
   }];
   assert.throws(() => renderConfluenceStorageFormat(result, sections), /join source "a" requires array data/);
 });
+
+test('renderConfluenceStorageFormat gantt minDurationS drops bars shorter than the threshold (inclusive boundary)', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { name: 'Short', s: '2026-07-21T09:00:00.000Z', durationMs: 4000 },
+      { name: 'Exact', s: '2026-07-21T09:00:05.000Z', durationMs: 5000 },
+      { name: 'Long', s: '2026-07-21T09:00:10.000Z', durationMs: 10000 },
+    ],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', minDurationS: 5 },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.doesNotMatch(html, /Short :/);
+  assert.match(html, /Exact :/);
+  assert.match(html, /Long :/);
+});
+
+test('renderConfluenceStorageFormat gantt minDurationS omits a sectionField group whose bars are all filtered out', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { name: 'TinyA', s: '2026-07-21T09:00:00.000Z', durationMs: 500, pipelineRunId: 'run-1' },
+      { name: 'TinyB', s: '2026-07-21T09:00:01.000Z', durationMs: 500, pipelineRunId: 'run-1' },
+      { name: 'BigC', s: '2026-07-21T09:00:02.000Z', durationMs: 10000, pipelineRunId: 'run-2' },
+    ],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', sectionField: 'pipelineRunId', minDurationS: 5 },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.doesNotMatch(html, /section run-1/);
+  assert.match(html, /section run-2/);
+  assert.match(html, /BigC :/);
+});
