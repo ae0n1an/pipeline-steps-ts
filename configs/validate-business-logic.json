@@ -3,7 +3,7 @@
     {
       "name": "usersVsResult",
       "csvPath": "{{steps.genUsersCsv.outputs.usersCsv_csvPath}}",
-      "jsonPath": "{{steps.verifyResult.outputs.result_localPath}}",
+      "jsonPath": "{{steps.gpgDecryptResult.outputs.result_decryptedPath}}",
       "csvKeyField": "id",
       "jsonKeyField": "id",
       "rules": [
