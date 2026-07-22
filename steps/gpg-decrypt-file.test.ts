@@ -91,6 +91,31 @@ test('decrypts with a passphrase-protected private key when passphrase is suppli
   }
 });
 
+test('does not leak the passphrase into the thrown error message on decryption failure', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gpg-decrypt-out-'));
+  try {
+    const encryptedPath = path.join(outDir, 'secret3.gpg');
+    encryptForTest(UID_WITH_PASS, 'payload\n', encryptedPath);
+    // Use a wrong passphrase distinct from PASSPHRASE. This is the actual
+    // secret value handed to gpg for *this* call, so it's the one that would
+    // show up in execFileSync's error message if it were still passed via
+    // argv instead of stdin. (Asserting against PASSPHRASE here would be
+    // vacuous: PASSPHRASE is never used in this call, so it could never
+    // appear in the error regardless of whether the fix works.)
+    const wrongPassphrase = 'definitely-the-wrong-passphrase';
+    const config = {
+      files: [{ name: 'fileD', inputPath: encryptedPath, privateKeyArmored: keyWithPass.privateKey, passphrase: wrongPassphrase }],
+    };
+    await assert.rejects(async () => step.run(config, fakeCtx(outDir)), (err: Error) => {
+      assert.doesNotMatch(err.message, new RegExp(wrongPassphrase));
+      assert.match(err.message, /File entry 0 \("fileD"\) failed:/);
+      return true;
+    });
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
 test('fails when a passphrase-protected key is decrypted without a passphrase', async () => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gpg-decrypt-out-'));
   try {

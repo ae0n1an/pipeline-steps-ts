@@ -38,10 +38,11 @@ export interface GpgDecryptConfig {
   files: FileEntryConfig[];
 }
 
-function gpg(gnupgHome: string, args: string[]): string {
+function gpg(gnupgHome: string, args: string[], input?: string): string {
   return execFileSync('gpg', ['--batch', '--yes', ...args], {
     env: { ...process.env, GNUPGHOME: gnupgHome },
     encoding: 'utf8',
+    input,
   });
 }
 
@@ -134,9 +135,9 @@ async function decryptOneFile(
     const outputPath = path.join(ctx.outDir, outputFileName);
 
     const args: string[] = [];
-    if (passphrase) args.push('--pinentry-mode', 'loopback', '--passphrase', passphrase);
+    if (passphrase) args.push('--pinentry-mode', 'loopback', '--passphrase-fd', '0');
     args.push('--output', outputPath, '--decrypt', file.inputPath);
-    gpg(gnupgHome, args);
+    gpg(gnupgHome, args, passphrase);
 
     const stats = fs.statSync(outputPath);
     ctx.log(`Wrote ${outputPath} (${stats.size} bytes)`);
