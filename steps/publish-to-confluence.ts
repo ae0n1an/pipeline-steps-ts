@@ -345,6 +345,25 @@ function renderGanttSection(section: ReportSection, data: unknown): string {
   return `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">mermaid</ac:parameter><ac:plain-text-body><![CDATA[\n${mermaid}\n]]></ac:plain-text-body></ac:structured-macro>`;
 }
 
+function resolveSectionData(
+  dataFrom: string | undefined,
+  source: 'outputs' | 'data' | undefined,
+  arrayPath: string | undefined,
+  result: ConsolidatedResult,
+  sectionTitle: string,
+): unknown {
+  const stepEntry = result.steps.find(s => s.stepName === dataFrom);
+  if (!stepEntry) {
+    throw new Error(`section "${sectionTitle}": no step named "${dataFrom}" in the results`);
+  }
+  const resolvedSource = source ?? 'outputs';
+  const sourceValue = resolvedSource === 'data' ? stepEntry.data : stepEntry.outputs;
+  if (resolvedSource === 'data' && sourceValue === undefined) {
+    throw new Error(`section "${sectionTitle}": step "${dataFrom}" has no embedded "data" (configure embedArtifacts in consolidate-run-results)`);
+  }
+  return arrayPath ? resolveFieldPath(sourceValue, arrayPath) : sourceValue;
+}
+
 function renderSection(section: ReportSection, result: ConsolidatedResult): string {
   if (section.type === 'static') {
     if (!section.html) {
@@ -353,16 +372,7 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
     return `<h2>${escapeXhtml(section.title)}</h2>${section.html}`;
   }
 
-  const stepEntry = result.steps.find(s => s.stepName === section.dataFrom);
-  if (!stepEntry) {
-    throw new Error(`section "${section.title}": no step named "${section.dataFrom}" in the results`);
-  }
-  const source = section.source ?? 'outputs';
-  const sourceValue = source === 'data' ? stepEntry.data : stepEntry.outputs;
-  if (source === 'data' && sourceValue === undefined) {
-    throw new Error(`section "${section.title}": step "${section.dataFrom}" has no embedded "data" (configure embedArtifacts in consolidate-run-results)`);
-  }
-  const data = section.arrayPath ? resolveFieldPath(sourceValue, section.arrayPath) : sourceValue;
+  const data = resolveSectionData(section.dataFrom, section.source, section.arrayPath, result, section.title);
 
   const layout = section.layout ?? 'keyvalue';
 
