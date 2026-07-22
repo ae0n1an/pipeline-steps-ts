@@ -2,7 +2,7 @@
   "files": [
     {
       "name": "outboundResult",
-      "filePath": "{{steps.verifyResult.outputs.result_localPath}}",
+      "filePath": "{{steps.gpgDecryptResult.outputs.result_decryptedPath}}",
       "schemaPath": "configs/schemas/outbound-result-schema.json"
     }
   ]

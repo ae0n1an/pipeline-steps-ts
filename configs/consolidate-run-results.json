@@ -2,11 +2,13 @@
   "stepNames": [
     "genUsersCsv",
     "gpgEncryptCsv",
+    "uploadPayload",
     "waitForTrigger",
     "executeAdf",
     "pollAdf",
     "extractAdfDetails",
     "verifyResult",
+    "gpgDecryptResult",
     "verifyRowCount",
     "validateSchema",
     "validateBusinessLogic"
