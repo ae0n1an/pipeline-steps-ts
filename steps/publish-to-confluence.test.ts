@@ -253,6 +253,22 @@ function resultWithStep(
   };
 }
 
+function resultWithSteps(
+  entries: Array<{ stepName: string; outputs?: Record<string, unknown>; data?: unknown }>,
+) {
+  return {
+    runMetadata: {},
+    generatedAt: 't',
+    steps: entries.map(e => ({
+      stepName: e.stepName,
+      ok: true,
+      outputs: e.outputs ?? {},
+      data: e.data,
+    })),
+    summary: { totalSteps: entries.length, succeededCount: entries.length, failedCount: 0 },
+  };
+}
+
 test('renderConfluenceStorageFormat renders a custom table section from embedded step data', () => {
   const result = resultWithStep('extractAdfDetails', {
     data: { pipelineRuns: [{ pipelineName: 'CopyOrders', runId: 'run-1', status: 'Succeeded', durationMs: 5000 }] },
@@ -651,6 +667,23 @@ test('renderConfluenceStorageFormat groupBy on layout:"gantt" still applies gant
   assert.ok(child3Index > h3Run2, 'run-2 sections should come after run-2 heading');
 });
 
+test('renderConfluenceStorageFormat groupBy on layout:"gantt" omits a group whose bars are entirely filtered out by minDurationS', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { name: 'TinyA', s: '2026-07-21T09:00:00.000Z', durationMs: 500, topLevelRunId: 'run-1' },
+      { name: 'BigB', s: '2026-07-21T09:00:01.000Z', durationMs: 10000, topLevelRunId: 'run-2' },
+    ],
+  });
+  const sections = [{
+    title: 'Timeline', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const, groupBy: 'topLevelRunId',
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', minDurationS: 5 },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.doesNotMatch(html, /<h3>run-1<\/h3>/);
+  assert.match(html, /<h3>run-2<\/h3>/);
+  assert.match(html, /BigB :/);
+});
+
 test('renderConfluenceStorageFormat throws when groupBy is used on non-array data', () => {
   const result = resultWithStep('a', { data: { notAnArray: true } });
   const sections = [{ title: 'G', dataFrom: 'a', source: 'data' as const, layout: 'table' as const, groupBy: 'x' }];
@@ -826,4 +859,138 @@ test('runAll renders a full page combining format, groupBy, gantt, static sectio
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }
+});
+
+test('renderConfluenceStorageFormat join merges rows from two sources sharing a keyField, in order of first appearance', () => {
+  const result = resultWithSteps([
+    { stepName: 'inbound', data: [{ fileId: 'f1', path: 'a.csv', rows: 10 }, { fileId: 'f2', path: 'b.csv', rows: 20 }] },
+    { stepName: 'outbound', data: [{ fileId: 'f2', size: 200 }, { fileId: 'f1', size: 100 }] },
+  ]);
+  const sections = [{
+    title: 'Files', type: 'join' as const,
+    join: [
+      { dataFrom: 'inbound', source: 'data' as const, keyField: 'fileId', fields: [{ label: 'Path', field: 'path' }, { label: 'Rows', field: 'rows' }] },
+      { dataFrom: 'outbound', source: 'data' as const, keyField: 'fileId', fields: [{ label: 'Size', field: 'size' }] },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<h2>Files<\/h2>/);
+  assert.match(html, /<th>Path<\/th><th>Rows<\/th><th>Size<\/th>/);
+  assert.match(html, /<td>a\.csv<\/td><td>10<\/td><td>100<\/td>/);
+  assert.match(html, /<td>b\.csv<\/td><td>20<\/td><td>200<\/td>/);
+  const f1Index = html.indexOf('a.csv');
+  const f2Index = html.indexOf('b.csv');
+  assert.ok(f1Index < f2Index);
+});
+
+test('renderConfluenceStorageFormat join produces independent rows for sources with no keyField (union)', () => {
+  const result = resultWithSteps([
+    { stepName: 'inbound', data: [{ path: 'a.csv', rows: 10 }] },
+    { stepName: 'outbound', data: [{ path: 'result.json', rows: 5 }] },
+  ]);
+  const sections = [{
+    title: 'Files', type: 'join' as const,
+    join: [
+      { dataFrom: 'inbound', source: 'data' as const, fields: [{ label: 'Inbound Path', field: 'path' }, { label: 'Inbound Rows', field: 'rows' }] },
+      { dataFrom: 'outbound', source: 'data' as const, fields: [{ label: 'Outbound Path', field: 'path' }, { label: 'Outbound Rows', field: 'rows' }] },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>a\.csv<\/td><td>10<\/td><td><\/td><td><\/td>/);
+  assert.match(html, /<td><\/td><td><\/td><td>result\.json<\/td><td>5<\/td>/);
+});
+
+test('renderConfluenceStorageFormat join allows mixing a keyed source with an unkeyed source in the same section', () => {
+  const result = resultWithSteps([
+    { stepName: 'keyed', data: [{ id: 'k1', name: 'Alpha' }] },
+    { stepName: 'unkeyed', data: [{ note: 'extra row' }] },
+  ]);
+  const sections = [{
+    title: 'Mixed', type: 'join' as const,
+    join: [
+      { dataFrom: 'keyed', source: 'data' as const, keyField: 'id', fields: [{ label: 'Name', field: 'name' }] },
+      { dataFrom: 'unkeyed', source: 'data' as const, fields: [{ label: 'Note', field: 'note' }] },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<td>Alpha<\/td><td><\/td>/);
+  assert.match(html, /<td><\/td><td>extra row<\/td>/);
+});
+
+test("renderConfluenceStorageFormat join keeps two sources' same-labeled columns distinct (no collision)", () => {
+  const result = resultWithSteps([
+    { stepName: 'a', data: [{ path: 'in.csv' }] },
+    { stepName: 'b', data: [{ path: 'out.json' }] },
+  ]);
+  const sections = [{
+    title: 'T', type: 'join' as const,
+    join: [
+      { dataFrom: 'a', source: 'data' as const, fields: [{ label: 'Path', field: 'path' }] },
+      { dataFrom: 'b', source: 'data' as const, fields: [{ label: 'Path', field: 'path' }] },
+    ],
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.match(html, /<th>Path<\/th><th>Path<\/th>/);
+  assert.match(html, /<td>in\.csv<\/td><td><\/td>/);
+  assert.match(html, /<td><\/td><td>out\.json<\/td>/);
+});
+
+test('renderConfluenceStorageFormat throws when type:"join" has no join array', () => {
+  const result = resultWithSteps([{ stepName: 'a' }]);
+  const sections = [{ title: 'T', type: 'join' as const }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /type "join" requires a non-empty "join" array/);
+});
+
+test('renderConfluenceStorageFormat throws when a join source names a step not present in the results', () => {
+  const result = resultWithSteps([{ stepName: 'a', data: [] }]);
+  const sections = [{
+    title: 'T', type: 'join' as const,
+    join: [{ dataFrom: 'missingStep', source: 'data' as const, fields: [{ label: 'X', field: 'x' }] }],
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /no step named "missingStep"/);
+});
+
+test('renderConfluenceStorageFormat throws when a join source resolves to non-array data', () => {
+  const result = resultWithSteps([{ stepName: 'a', data: { notAnArray: true } }]);
+  const sections = [{
+    title: 'T', type: 'join' as const,
+    join: [{ dataFrom: 'a', source: 'data' as const, fields: [{ label: 'X', field: 'x' }] }],
+  }];
+  assert.throws(() => renderConfluenceStorageFormat(result, sections), /join source "a" requires array data/);
+});
+
+test('renderConfluenceStorageFormat gantt minDurationS drops bars shorter than the threshold (inclusive boundary)', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { name: 'Short', s: '2026-07-21T09:00:00.000Z', durationMs: 4000 },
+      { name: 'Exact', s: '2026-07-21T09:00:05.000Z', durationMs: 5000 },
+      { name: 'Long', s: '2026-07-21T09:00:10.000Z', durationMs: 10000 },
+    ],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', minDurationS: 5 },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.doesNotMatch(html, /Short :/);
+  assert.match(html, /Exact :/);
+  assert.match(html, /Long :/);
+});
+
+test('renderConfluenceStorageFormat gantt minDurationS omits a sectionField group whose bars are all filtered out', () => {
+  const result = resultWithStep('a', {
+    data: [
+      { name: 'TinyA', s: '2026-07-21T09:00:00.000Z', durationMs: 500, pipelineRunId: 'run-1' },
+      { name: 'TinyB', s: '2026-07-21T09:00:01.000Z', durationMs: 500, pipelineRunId: 'run-1' },
+      { name: 'BigC', s: '2026-07-21T09:00:02.000Z', durationMs: 10000, pipelineRunId: 'run-2' },
+    ],
+  });
+  const sections = [{
+    title: 'T', dataFrom: 'a', source: 'data' as const, layout: 'gantt' as const,
+    gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', sectionField: 'pipelineRunId', minDurationS: 5 },
+  }];
+  const html = renderConfluenceStorageFormat(result, sections);
+  assert.doesNotMatch(html, /section run-1/);
+  assert.match(html, /section run-2/);
+  assert.match(html, /BigC :/);
 });

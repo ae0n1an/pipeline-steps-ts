@@ -44,13 +44,35 @@ export interface GanttConfig {
   endField?: string;
   /** Dot-path; groups bars into separate Mermaid `section` blocks, in order of first appearance. */
   sectionField?: string;
+  /** Bars whose resolved duration is shorter than this many seconds are dropped before the chart is built. A sectionField/groupBy group left with zero bars after filtering is omitted entirely. */
+  minDurationS?: number;
+}
+
+export interface JoinSource {
+  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. */
+  dataFrom: string;
+  /** Which part of that step's entry to read. Default 'outputs'. */
+  source?: 'outputs' | 'data';
+  /** Dot-path within the selected source to the array to join from. */
+  arrayPath?: string;
+  /**
+   * Dot-path (per item). When set, items from this source merge into a
+   * row shared with any other source's item resolving the same key
+   * value (outer-join: a key present in only one source still gets a
+   * row, with every other source's columns blank). When omitted, every
+   * item from this source becomes its own independent row, with every
+   * other source's columns blank.
+   */
+  keyField?: string;
+  /** Dot-paths (per item) to extract, with display labels — same shape as every other section's `fields`. */
+  fields: ReportField[];
 }
 
 export interface ReportSection {
-  /** Default 'data'. 'static' ignores every other data-section field below except title/html. */
-  type?: 'data' | 'static';
+  /** Default 'data'. 'static' ignores every other data-section field below except title/html. 'join' ignores dataFrom/source/arrayPath/layout/fields/groupBy/gantt — see `join` below. */
+  type?: 'data' | 'static' | 'join';
   title: string;
-  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. Required unless type: 'static'. */
+  /** Step name, matching ConsolidatedStepEntry.stepName in the results JSON. Required unless type: 'static' or 'join'. */
   dataFrom?: string;
   /** Which part of that step's entry to read. Default 'outputs'. */
   source?: 'outputs' | 'data';
@@ -66,6 +88,8 @@ export interface ReportSection {
   gantt?: GanttConfig;
   /** Required when type is 'static'. Raw Confluence storage-format content, inserted unescaped under <h2>{title}</h2>. */
   html?: string;
+  /** Required when type is 'join'. Each source's array data (independently resolved the same way a plain section's dataFrom/source/arrayPath is) contributes columns and/or merges into shared rows. */
+  join?: JoinSource[];
 }
 
 export interface PublishToConfluenceConfig {
@@ -303,15 +327,29 @@ function toMermaidTimestamp(date: Date): string {
   return date.toISOString().replace(/Z$/, '');
 }
 
-function resolveGanttEnd(item: unknown, gantt: GanttConfig, index: number, sectionTitle: string): string {
+function resolveGanttEndDate(item: unknown, gantt: GanttConfig, index: number, sectionTitle: string): Date {
   const endRaw = gantt.endField ? resolveFieldPath(item, gantt.endField) : undefined;
-  if (endRaw != null) return toMermaidTimestamp(new Date(String(endRaw)));
+  if (endRaw != null) return new Date(String(endRaw));
   const startRaw = resolveFieldPath(item, gantt.startField);
   const durationRaw = gantt.durationField ? resolveFieldPath(item, gantt.durationField) : undefined;
   if (startRaw != null && durationRaw != null) {
-    return toMermaidTimestamp(new Date(new Date(String(startRaw)).getTime() + Number(durationRaw)));
+    return new Date(new Date(String(startRaw)).getTime() + Number(durationRaw));
   }
   throw new Error(`section "${sectionTitle}": item ${index + 1} has no resolvable end time (need endField or durationField)`);
+}
+
+function computeGanttBars(gantt: GanttConfig, data: unknown[], sectionTitle: string): Array<{ sectionKey: string; line: string }> {
+  return data
+    .map((item, index) => {
+      const sectionKey = gantt.sectionField ? String(resolveFieldPath(item, gantt.sectionField) ?? '') : 'Activities';
+      const taskName = sanitizeMermaidText(resolveFieldPath(item, gantt.taskField));
+      const startDate = new Date(String(resolveFieldPath(item, gantt.startField)));
+      const endDate = resolveGanttEndDate(item, gantt, index, sectionTitle);
+      const durationMs = endDate.getTime() - startDate.getTime();
+      const line = `    ${taskName} : ${toMermaidTimestamp(startDate)}, ${toMermaidTimestamp(endDate)}`;
+      return { sectionKey, line, durationMs };
+    })
+    .filter(bar => gantt.minDurationS == null || bar.durationMs >= gantt.minDurationS * 1000);
 }
 
 function renderGanttSection(section: ReportSection, data: unknown): string {
@@ -323,13 +361,7 @@ function renderGanttSection(section: ReportSection, data: unknown): string {
     throw new Error(`section "${section.title}": gantt layout requires array data`);
   }
 
-  const bars = data.map((item, index) => {
-    const sectionKey = gantt.sectionField ? String(resolveFieldPath(item, gantt.sectionField) ?? '') : 'Activities';
-    const taskName = sanitizeMermaidText(resolveFieldPath(item, gantt.taskField));
-    const start = toMermaidTimestamp(new Date(String(resolveFieldPath(item, gantt.startField))));
-    const end = resolveGanttEnd(item, gantt, index, section.title);
-    return { sectionKey, line: `    ${taskName} : ${start}, ${end}` };
-  });
+  const bars = computeGanttBars(gantt, data, section.title);
 
   const groups = partitionByKey(bars, bar => bar.sectionKey);
   const body = groups.flatMap(g => [`    section ${sanitizeMermaidText(g.key)}`, ...g.items.map(b => b.line)]);
@@ -345,6 +377,71 @@ function renderGanttSection(section: ReportSection, data: unknown): string {
   return `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">mermaid</ac:parameter><ac:plain-text-body><![CDATA[\n${mermaid}\n]]></ac:plain-text-body></ac:structured-macro>`;
 }
 
+function resolveSectionData(
+  dataFrom: string | undefined,
+  source: 'outputs' | 'data' | undefined,
+  arrayPath: string | undefined,
+  result: ConsolidatedResult,
+  sectionTitle: string,
+): unknown {
+  const stepEntry = result.steps.find(s => s.stepName === dataFrom);
+  if (!stepEntry) {
+    throw new Error(`section "${sectionTitle}": no step named "${dataFrom}" in the results`);
+  }
+  const resolvedSource = source ?? 'outputs';
+  const sourceValue = resolvedSource === 'data' ? stepEntry.data : stepEntry.outputs;
+  if (resolvedSource === 'data' && sourceValue === undefined) {
+    throw new Error(`section "${sectionTitle}": step "${dataFrom}" has no embedded "data" (configure embedArtifacts in consolidate-run-results)`);
+  }
+  return arrayPath ? resolveFieldPath(sourceValue, arrayPath) : sourceValue;
+}
+
+function renderJoinSection(section: ReportSection, result: ConsolidatedResult): string {
+  const sources = section.join;
+  if (!sources || sources.length === 0) {
+    throw new Error(`section "${section.title}": type "join" requires a non-empty "join" array`);
+  }
+
+  const columns = sources.flatMap((src, si) => src.fields.map((f, fi) => ({ label: f.label, key: `${si}.${fi}` })));
+
+  const keyedRows = new Map<string, Map<string, string>>();
+  const keyOrder: string[] = [];
+  const unkeyedRows: Map<string, string>[] = [];
+
+  sources.forEach((src, si) => {
+    const data = resolveSectionData(src.dataFrom, src.source, src.arrayPath, result, section.title);
+    if (!Array.isArray(data)) {
+      throw new Error(`section "${section.title}": join source "${src.dataFrom}" requires array data`);
+    }
+    data.forEach(item => {
+      const cells = new Map<string, string>();
+      src.fields.forEach((f, fi) => {
+        cells.set(`${si}.${fi}`, renderFieldValue(resolveFieldPath(item, f.field), f, section.title));
+      });
+      if (src.keyField) {
+        const key = String(resolveFieldPath(item, src.keyField) ?? '');
+        const existing = keyedRows.get(key);
+        if (existing) {
+          for (const [k, v] of cells) existing.set(k, v);
+        } else {
+          keyedRows.set(key, cells);
+          keyOrder.push(key);
+        }
+      } else {
+        unkeyedRows.push(cells);
+      }
+    });
+  });
+
+  const allRows = [...keyOrder.map(k => keyedRows.get(k)!), ...unkeyedRows];
+
+  const headerRow = `<tr>${columns.map(c => `<th>${escapeXhtml(c.label)}</th>`).join('')}</tr>`;
+  const bodyRows = allRows
+    .map(cells => `<tr>${columns.map(c => `<td>${cells.get(c.key) ?? ''}</td>`).join('')}</tr>`)
+    .join('');
+  return `<table><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>`;
+}
+
 function renderSection(section: ReportSection, result: ConsolidatedResult): string {
   if (section.type === 'static') {
     if (!section.html) {
@@ -352,17 +449,11 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
     }
     return `<h2>${escapeXhtml(section.title)}</h2>${section.html}`;
   }
+  if (section.type === 'join') {
+    return `<h2>${escapeXhtml(section.title)}</h2>${renderJoinSection(section, result)}`;
+  }
 
-  const stepEntry = result.steps.find(s => s.stepName === section.dataFrom);
-  if (!stepEntry) {
-    throw new Error(`section "${section.title}": no step named "${section.dataFrom}" in the results`);
-  }
-  const source = section.source ?? 'outputs';
-  const sourceValue = source === 'data' ? stepEntry.data : stepEntry.outputs;
-  if (source === 'data' && sourceValue === undefined) {
-    throw new Error(`section "${section.title}": step "${section.dataFrom}" has no embedded "data" (configure embedArtifacts in consolidate-run-results)`);
-  }
-  const data = section.arrayPath ? resolveFieldPath(sourceValue, section.arrayPath) : sourceValue;
+  const data = resolveSectionData(section.dataFrom, section.source, section.arrayPath, result, section.title);
 
   const layout = section.layout ?? 'keyvalue';
 
@@ -377,6 +468,10 @@ function renderSection(section: ReportSection, result: ConsolidatedResult): stri
     const groups = partitionByKey(data, item => String(resolveFieldPath(item, groupBy) ?? ''));
     const body = groups
       .map(({ key, items }) => {
+        if (layout === 'gantt' && section.gantt?.taskField && section.gantt?.startField) {
+          const bars = computeGanttBars(section.gantt, items, section.title);
+          if (bars.length === 0) return '';
+        }
         const groupBody = layout === 'table' ? renderTableSection(section, items)
           : layout === 'bullets' ? renderBulletsSection(section, items)
           : renderGanttSection({ ...section, title: `${section.title} — ${key}` }, items);
