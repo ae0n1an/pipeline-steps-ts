@@ -620,6 +620,8 @@ test('renderConfluenceStorageFormat groupBy on layout:"gantt" still applies gant
     data: [
       { name: 'A1', s: '2026-07-21T09:00:00.000Z', durationMs: 1000, topLevelRunId: 'run-1', childRunId: 'child-1' },
       { name: 'A2', s: '2026-07-21T09:00:01.000Z', durationMs: 1000, topLevelRunId: 'run-1', childRunId: 'child-2' },
+      { name: 'B1', s: '2026-07-21T09:00:02.000Z', durationMs: 1000, topLevelRunId: 'run-2', childRunId: 'child-3' },
+      { name: 'B2', s: '2026-07-21T09:00:03.000Z', durationMs: 1000, topLevelRunId: 'run-2', childRunId: 'child-4' },
     ],
   });
   const sections = [{
@@ -627,8 +629,26 @@ test('renderConfluenceStorageFormat groupBy on layout:"gantt" still applies gant
     gantt: { taskField: 'name', startField: 's', durationField: 'durationMs', sectionField: 'childRunId' },
   }];
   const html = renderConfluenceStorageFormat(result, sections);
+  // Two separate <h3> group headings
+  assert.match(html, /<h3>run-1<\/h3>/);
+  assert.match(html, /<h3>run-2<\/h3>/);
+  // Section names from both groups appear
   assert.match(html, /section child-1/);
   assert.match(html, /section child-2/);
+  assert.match(html, /section child-3/);
+  assert.match(html, /section child-4/);
+  // Two separate Mermaid code-block macros (one per group)
+  const codeBlockCount = (html.match(/ac:name="code"/g) ?? []).length;
+  assert.equal(codeBlockCount, 2);
+  // Each group's sections appear in the right place: run-2's sections come after run-2's heading
+  const h3Run1 = html.indexOf('<h3>run-1</h3>');
+  const h3Run2 = html.indexOf('<h3>run-2</h3>');
+  const child3Index = html.indexOf('section child-3');
+  const child1Index = html.indexOf('section child-1');
+  assert.ok(h3Run1 < child1Index, 'run-1 heading should come before child-1 section');
+  assert.ok(h3Run2 < child3Index, 'run-2 heading should come before child-3 section');
+  assert.ok(child1Index < h3Run2, 'run-1 sections should come before run-2 heading');
+  assert.ok(child3Index > h3Run2, 'run-2 sections should come after run-2 heading');
 });
 
 test('renderConfluenceStorageFormat throws when groupBy is used on non-array data', () => {
