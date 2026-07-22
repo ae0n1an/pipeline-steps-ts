@@ -1,0 +1,10 @@
+{
+  "files": [
+    {
+      "name": "result",
+      "inputPath": "{{steps.verifyResult.outputs.result_localPath}}",
+      "privateKeyArmored": "{{env.GPG_PRIVATE_KEY}}",
+      "passphrase": "{{env.GPG_PASSPHRASE}}"
+    }
+  ]
+}
