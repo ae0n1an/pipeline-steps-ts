@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Two related additions to the pipeline's reporting, both continuing the
+Three related additions to the pipeline's reporting, all continuing the
 `publish-to-confluence` sections work:
 
 1. **`groupBy` on `layout: 'gantt'`** — today `groupBy` only works with
@@ -14,7 +14,13 @@ Two related additions to the pipeline's reporting, both continuing the
    underlying data already covers only one run, that single run's
    timeline), each still able to use `gantt.sectionField` internally to
    split a run's own child pipelines.
-2. **New report sections for payload path/size/row-count** — the
+2. **Bug fix: trailing `Z` in Mermaid gantt timestamps** — found while
+   revisiting the gantt code for the above. Every bar's start/end is
+   built with `.toISOString()`, which appends a `Z` the chart's declared
+   `dateFormat` has no token for, leaving it dangling and unparsed by
+   Mermaid. Fixed alongside the `groupBy` work since both touch the same
+   function.
+3. **New report sections for payload path/size/row-count** — the
    inbound (generated → encrypted → uploaded) and outbound (downloaded →
    decrypted → row-counted) payload's file details currently exist only
    as scattered per-step outputs, never surfaced in the Confluence
@@ -92,6 +98,47 @@ changes what appears *inside* each group's own Mermaid `title` line.
   `gantt.taskField`/`startField`, or an item with no resolvable end time)
   still fires per-group exactly as it would for the whole array today,
   since each group is rendered through the same `renderGanttSection`.
+
+### Bug fix: trailing `Z` in Mermaid timestamps
+
+Independent of `groupBy`, `renderGanttSection` and `resolveGanttEnd`
+currently build every bar's start/end timestamp via `.toISOString()` —
+which always appends a trailing `Z` (e.g. `2026-07-21T09:00:00.000Z`) —
+while the chart's declared `dateFormat` line is
+`YYYY-MM-DDTHH:mm:ss.SSS`, with no token for a UTC/offset suffix at all.
+Mermaid (via day.js's custom parsing against that exact format string)
+has nothing in the format to match the trailing `Z` against, so it's left
+dangling — this is the "isn't handled nicely" issue. The `dateFormat`
+line itself is not changing (no timezone conversion is being introduced
+here — these remain the raw UTC instants ADF reports, just written
+without the stray suffix); only the trailing `Z` needs to go.
+
+Fix: a small helper, added next to `sanitizeMermaidText` in
+`steps/publish-to-confluence.ts`:
+
+```ts
+function toMermaidTimestamp(date: Date): string {
+  return date.toISOString().replace(/Z$/, '');
+}
+```
+
+Used everywhere a bar's start/end is currently built with a bare
+`.toISOString()` call:
+
+- In `renderGanttSection`, the `start` line:
+  `const start = toMermaidTimestamp(new Date(String(resolveFieldPath(item, gantt.startField))));`
+- In `resolveGanttEnd`, both return paths:
+  `return toMermaidTimestamp(new Date(String(endRaw)));` and
+  `return toMermaidTimestamp(new Date(new Date(String(startRaw)).getTime() + Number(durationRaw)));`
+
+No other behavior changes: `resolveGanttEnd`'s precedence rules
+(`endField` over `durationField`, the "no resolvable end time" error) and
+`sectionField`/`groupBy` grouping are all unaffected — this only touches
+the last step of turning a `Date` into the string written into the
+Mermaid syntax. Every existing gantt test's expected output strings need
+their trailing `Z` removed to match (e.g.
+`2026-07-21T09:00:00.000Z, 2026-07-21T09:00:30.000Z` becomes
+`2026-07-21T09:00:00.000, 2026-07-21T09:00:30.000`).
 
 ### Example
 
@@ -266,7 +313,12 @@ group's chart; and updating the existing "groupBy + gantt throws" test
 now *works* under `groupBy` — replaced with a genuinely unsupported
 combination for the still-must-throw case (e.g. `groupBy` +
 `layout: 'keyvalue'`, since `keyvalue` is not array-shaped and was never
-a groupBy target).
+a groupBy target). Every pre-existing gantt test's expected bar-line
+strings (e.g. `CopyData : 2026-07-21T09:00:00.000Z, ...`) are updated to
+drop the trailing `Z` (`CopyData : 2026-07-21T09:00:00.000, ...`) to
+match the `toMermaidTimestamp` fix — this is a required update to
+already-passing tests, not new coverage, so it's called out separately
+from the new tests above.
 
 **Part 2:** no `publish-to-confluence.ts`/`.test.ts` changes (pure config
 content) — verified instead by re-running the full test suite (proving
