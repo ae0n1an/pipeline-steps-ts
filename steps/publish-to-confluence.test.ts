@@ -601,7 +601,7 @@ test('renderConfluenceStorageFormat renders a gantt layout as a Mermaid code-blo
   assert.match(html, /<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">mermaid<\/ac:parameter>/);
   assert.match(html, /gantt/);
   assert.match(html, /section Activities/);
-  assert.match(html, /CopyData : 2026-07-21T09:00:00\.000Z, 2026-07-21T09:00:30\.000Z/);
+  assert.match(html, /CopyData : 2026-07-21T09:00:00\.000, 2026-07-21T09:00:30\.000/);
 });
 
 test('renderConfluenceStorageFormat gantt prefers endField over durationField when both resolve', () => {
@@ -613,7 +613,7 @@ test('renderConfluenceStorageFormat gantt prefers endField over durationField wh
     gantt: { taskField: 'name', startField: 's', endField: 'e', durationField: 'durationMs' },
   }];
   const html = renderConfluenceStorageFormat(result, sections);
-  assert.match(html, /A : 2026-07-21T09:00:00\.000Z, 2026-07-21T09:05:00\.000Z/);
+  assert.match(html, /A : 2026-07-21T09:00:00\.000, 2026-07-21T09:05:00\.000/);
 });
 
 test('renderConfluenceStorageFormat gantt groups bars into Mermaid sections via sectionField, in order of first appearance', () => {
@@ -754,7 +754,7 @@ test('runAll renders a full page combining format, groupBy, gantt, static sectio
     assert.match(content, /2026-07-21 14:00:00 AEST/);
     assert.match(content, /4\.2s/);
     assert.match(content, /language">mermaid/);
-    assert.match(content, /CopyData : 2026-07-21T04:00:00\.000Z, 2026-07-21T04:00:30\.000Z/);
+    assert.match(content, /CopyData : 2026-07-21T04:00:00\.000, 2026-07-21T04:00:30\.000/);
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }

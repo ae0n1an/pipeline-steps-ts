@@ -299,13 +299,17 @@ function sanitizeMermaidText(value: unknown): string {
   return String(value ?? '').replace(/:/g, '');
 }
 
+function toMermaidTimestamp(date: Date): string {
+  return date.toISOString().replace(/Z$/, '');
+}
+
 function resolveGanttEnd(item: unknown, gantt: GanttConfig, index: number, sectionTitle: string): string {
   const endRaw = gantt.endField ? resolveFieldPath(item, gantt.endField) : undefined;
-  if (endRaw != null) return new Date(String(endRaw)).toISOString();
+  if (endRaw != null) return toMermaidTimestamp(new Date(String(endRaw)));
   const startRaw = resolveFieldPath(item, gantt.startField);
   const durationRaw = gantt.durationField ? resolveFieldPath(item, gantt.durationField) : undefined;
   if (startRaw != null && durationRaw != null) {
-    return new Date(new Date(String(startRaw)).getTime() + Number(durationRaw)).toISOString();
+    return toMermaidTimestamp(new Date(new Date(String(startRaw)).getTime() + Number(durationRaw)));
   }
   throw new Error(`section "${sectionTitle}": item ${index + 1} has no resolvable end time (need endField or durationField)`);
 }
@@ -322,7 +326,7 @@ function renderGanttSection(section: ReportSection, data: unknown): string {
   const bars = data.map((item, index) => {
     const sectionKey = gantt.sectionField ? String(resolveFieldPath(item, gantt.sectionField) ?? '') : 'Activities';
     const taskName = sanitizeMermaidText(resolveFieldPath(item, gantt.taskField));
-    const start = new Date(String(resolveFieldPath(item, gantt.startField))).toISOString();
+    const start = toMermaidTimestamp(new Date(String(resolveFieldPath(item, gantt.startField))));
     const end = resolveGanttEnd(item, gantt, index, section.title);
     return { sectionKey, line: `    ${taskName} : ${start}, ${end}` };
   });
