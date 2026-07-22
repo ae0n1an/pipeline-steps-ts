@@ -99,7 +99,7 @@ test('fails when a passphrase-protected key is decrypted without a passphrase', 
     const config = {
       files: [{ name: 'fileC', inputPath: encryptedPath, privateKeyArmored: keyWithPass.privateKey }],
     };
-    await assert.rejects(() => step.run(config, fakeCtx(outDir)), /File entry 0 \("fileC"\) failed:/);
+    await assert.rejects(() => step.run(config, fakeCtx(outDir)), /File entry 0 \("fileC"\) failed:[\s\S]*decryption failed/i);
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }
@@ -135,6 +135,19 @@ test('defaults the output filename by stripping a trailing .gpg/.asc, else appen
     const config = { files: [{ name: 'r', inputPath: encAsc, privateKeyArmored: keyNoPass.privateKey }] };
     const result = await step.run(config, fakeCtx(outDir));
     assert.equal(result.outputs?.r_fileName, 'report.csv');
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('appends .decrypted when the input has no .gpg or .asc suffix', async () => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gpg-decrypt-out-'));
+  try {
+    const encBin = path.join(outDir, 'payload.bin');
+    encryptForTest(UID_NO_PASS, 'binary payload\n', encBin);
+    const config = { files: [{ name: 'p', inputPath: encBin, privateKeyArmored: keyNoPass.privateKey }] };
+    const result = await step.run(config, fakeCtx(outDir));
+    assert.equal(result.outputs?.p_fileName, 'payload.bin.decrypted');
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
   }
